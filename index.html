@@ -1,0 +1,747 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Tesorería · Claudia Adorno</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#f59e0b">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root {
+  --primary: #f59e0b;
+  --primary-dark: #b45309;
+  --primary-light: #fef3c7;
+  --bg: #f9fafb;
+  --card: #ffffff;
+  --border: #e5e7eb;
+  --text: #111827;
+  --muted: #6b7280;
+  --green: #16a34a;
+  --green-bg: #dcfce7;
+  --red: #dc2626;
+  --red-bg: #fee2e2;
+  --blue: #0ea5e9;
+  --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+}
+* { box-sizing: border-box; }
+body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); -webkit-font-smoothing: antialiased; }
+
+.screen { display: none; }
+.screen.active { display: block; }
+
+/* LOGIN */
+#login-screen.active { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%); }
+.login-card { background: white; border-radius: 16px; padding: 32px 26px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); max-width: 400px; width: 100%; }
+.login-card h1 { text-align: center; font-size: 28px; margin: 0 0 4px; color: var(--primary-dark); }
+.login-card .sub { text-align: center; font-size: 13px; color: var(--muted); margin-bottom: 26px; }
+.login-card label { font-size: 12px; font-weight: 600; color: var(--muted); display: block; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.04em; }
+.login-card input { width: 100%; padding: 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 15px; margin-bottom: 14px; }
+.login-card input:focus { outline: none; border-color: var(--primary); }
+.btn-primary { background: var(--primary); color: white; border: none; padding: 12px; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; width: 100%; }
+.btn-primary:hover { background: var(--primary-dark); }
+.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+.login-error { color: var(--red); font-size: 12px; margin-bottom: 8px; min-height: 16px; }
+
+/* APP */
+.header { background: var(--card); border-bottom: 1px solid var(--border); padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100; }
+.header-left { display: flex; align-items: center; gap: 12px; }
+.header-title { font-size: 18px; font-weight: 800; color: var(--primary-dark); }
+.header-sub { font-size: 12px; color: var(--muted); }
+.header-right { display: flex; gap: 8px; align-items: center; }
+.btn-icon { background: white; border: 1px solid var(--border); padding: 6px 10px; border-radius: 6px; cursor: pointer; font-size: 14px; }
+.btn-secondary { background: white; color: var(--text); border: 1px solid var(--border); padding: 8px 12px; border-radius: 6px; font-size: 13px; cursor: pointer; }
+.btn-secondary:hover { background: #f3f4f6; }
+
+/* Nav tabs */
+.tabs { background: white; border-bottom: 1px solid var(--border); padding: 0 16px; display: flex; gap: 4px; overflow-x: auto; }
+.tabs button { background: transparent; border: none; padding: 12px 14px; font-size: 13px; font-weight: 600; color: var(--muted); cursor: pointer; border-bottom: 3px solid transparent; white-space: nowrap; }
+.tabs button.active { color: var(--primary-dark); border-bottom-color: var(--primary); }
+.tabs button:hover { background: #fafafa; }
+
+main { padding: 16px; max-width: 1400px; margin: 0 auto; }
+
+/* Saldos por grupo */
+.grupo { margin-bottom: 22px; }
+.grupo-title { font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; padding: 0 4px; }
+.cuentas-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+.cuenta-card { background: white; border-radius: 10px; padding: 14px; box-shadow: var(--shadow); border-left: 4px solid var(--primary); cursor: pointer; transition: transform 0.1s; }
+.cuenta-card:hover { transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.08); }
+.cuenta-card .cuenta-nombre { font-size: 13px; font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 6px; }
+.cuenta-card .cuenta-saldo { font-size: 22px; font-weight: 800; margin-top: 6px; font-variant-numeric: tabular-nums; }
+.cuenta-card .cuenta-saldo.negativo { color: var(--red); }
+.cuenta-card .cuenta-moneda { font-size: 11px; color: var(--muted); }
+
+/* Total */
+.total-card { background: linear-gradient(135deg, var(--primary-dark), var(--primary)); color: white; border-radius: 12px; padding: 18px; margin-bottom: 18px; }
+.total-card .label { font-size: 12px; opacity: 0.85; text-transform: uppercase; letter-spacing: 0.05em; }
+.total-card .value { font-size: 30px; font-weight: 800; margin-top: 4px; }
+.total-card .breakdown { font-size: 12px; opacity: 0.9; margin-top: 6px; }
+
+/* Tabla movimientos */
+.toolbar { background: white; border-radius: 10px; padding: 12px; margin-bottom: 12px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; box-shadow: var(--shadow); }
+.toolbar select, .toolbar input { padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; background: white; }
+.toolbar input { min-width: 180px; }
+.toolbar .spacer { flex: 1; }
+.toolbar button.primary { background: var(--primary); color: white; border: none; padding: 8px 14px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; }
+.toolbar button.primary:hover { background: var(--primary-dark); }
+
+.table-wrap { background: white; border-radius: 10px; box-shadow: var(--shadow); overflow: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 800px; }
+th { background: #f9fafb; padding: 10px 12px; text-align: left; font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; border-bottom: 1px solid var(--border); position: sticky; top: 0; }
+th.right, td.right { text-align: right; }
+td { padding: 10px 12px; border-bottom: 1px solid #f3f4f6; font-variant-numeric: tabular-nums; }
+tbody tr:nth-child(even) { background: #fafafa; }
+tbody tr:hover { background: var(--primary-light); }
+.importe-ingreso { color: var(--green); font-weight: 600; }
+.importe-egreso { color: var(--red); font-weight: 600; }
+.chip { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+.chip-origen-manual { background: #e0e7ff; color: #3730a3; }
+.chip-origen-ventas { background: #dbeafe; color: #1e40af; }
+.chip-origen-scraper { background: #dcfce7; color: #065f46; }
+.chip-origen-transferencia { background: #fef3c7; color: #92400e; }
+.chip-firma-pendiente { background: #fef3c7; color: #92400e; }
+
+/* Forms */
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.form-row label { font-size: 12px; font-weight: 600; color: var(--muted); display: block; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.04em; }
+.form-row input, .form-row select, .form-row textarea {
+  width: 100%; padding: 9px 11px; border: 1px solid var(--border); border-radius: 6px;
+  font-size: 14px; font-family: inherit;
+}
+.form-row textarea { resize: vertical; min-height: 50px; }
+.form-row.full { grid-column: 1 / -1; }
+.form-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 18px; }
+
+.card { background: white; border-radius: 10px; padding: 16px; box-shadow: var(--shadow); margin-bottom: 14px; }
+.card-title { font-size: 14px; font-weight: 700; margin: 0 0 12px; color: var(--text); }
+.empty { padding: 60px 20px; text-align: center; color: var(--muted); }
+.empty .icon { font-size: 42px; margin-bottom: 10px; }
+
+#toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #111827; color: white; padding: 10px 18px; border-radius: 6px; font-size: 13px; opacity: 0; transition: opacity 0.2s; z-index: 9999; pointer-events: none; }
+#toast.show { opacity: 1; }
+#toast.err { background: var(--red); }
+.spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid #e5e7eb; border-top-color: var(--primary); border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+@media (max-width: 600px) {
+  .form-grid { grid-template-columns: 1fr; }
+  .header-title { font-size: 16px; }
+  main { padding: 10px; }
+}
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="login-screen" class="screen active">
+  <div class="login-card">
+    <h1>💰 Tesorería</h1>
+    <p class="sub">Claudia Adorno SRL · Cajas, bancos e inversiones</p>
+    <label>Email</label>
+    <input type="email" id="login-email" placeholder="tu@email.com" autocomplete="email">
+    <label>Contraseña</label>
+    <input type="password" id="login-pass" placeholder="•••" onkeydown="if(event.key==='Enter')doLogin()">
+    <div class="login-error" id="login-error"></div>
+    <button class="btn-primary" id="login-btn" onclick="doLogin()">Entrar →</button>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app-screen" class="screen">
+  <div class="header">
+    <div class="header-left">
+      <span class="header-title">💰 Tesorería</span>
+      <span class="header-sub" id="hdr-sub"></span>
+    </div>
+    <div class="header-right">
+      <button class="btn-icon" id="btn-notifs" onclick="toggleNotificaciones()" title="Activar notificaciones">🔕</button>
+      <button class="btn-icon" id="refresh-btn" onclick="cargar()" title="Actualizar">↻</button>
+      <button class="btn-secondary" onclick="logout()">Salir</button>
+    </div>
+  </div>
+
+  <div class="tabs" id="tabs">
+    <button class="active" data-tab="dashboard" onclick="cambiarTab('dashboard')">📊 Saldos</button>
+    <button data-tab="movimientos" onclick="cambiarTab('movimientos')">📋 Movimientos</button>
+    <button data-tab="cargar" onclick="cambiarTab('cargar')">➕ Cargar</button>
+    <button data-tab="scrapers" onclick="cambiarTab('scrapers')" id="tab-scrapers" style="display:none;">🤖 Scrapers</button>
+  </div>
+
+  <main id="contenido"><div class="empty"><div class="spinner"></div></div></main>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════
+// CONFIG
+// ═══════════════════════════════════════════════════════════════════════
+const SUPA_URL = 'https://kwwiykssrpabncpqtmwi.supabase.co';
+const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt3d2l5a3NzcnBhYm5jcHF0bXdpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkzNjI1NTQsImV4cCI6MjA5NDkzODU1NH0.O1VhKdjPahnJJ9qXcQuSKQbnKGhsEZqYmjDEfRuRpkc';
+const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY, {
+  auth: { persistSession: true, autoRefreshToken: true, storageKey: 'tesoreria-adorno-auth' }
+});
+
+let session = null;  // { user, email, rol, empleadoData, localGerencia }
+let currentTab = 'dashboard';
+
+// Cache global de datos para no re-fetchear todo el tiempo
+let _cuentas = [];
+let _categorias = [];
+
+const fmt$ = (n, moneda) => {
+  const sign = n < 0 ? '-' : '';
+  const abs = Math.abs(Number(n||0));
+  const prefix = moneda === 'USD' ? 'U$D ' : '$ ';
+  return sign + prefix + abs.toLocaleString('es-AR', { maximumFractionDigits: 0 });
+};
+const fmtFecha = d => {
+  if (!d) return '—';
+  const dt = new Date(d.length === 10 ? d + 'T12:00:00' : d);
+  return dt.toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: '2-digit' });
+};
+const escHtml = s => String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const hoyISO = () => new Date().toISOString().split('T')[0];
+
+function toast(msg, err) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.className = 'show' + (err ? ' err' : '');
+  setTimeout(() => { t.className = ''; }, 2800);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// LOGIN
+// ═══════════════════════════════════════════════════════════════════════
+async function doLogin() {
+  const email = document.getElementById('login-email').value.trim();
+  const pass = document.getElementById('login-pass').value;
+  const errEl = document.getElementById('login-error');
+  errEl.textContent = '';
+  if (!email || !pass) { errEl.textContent = 'Faltan datos'; return; }
+  document.getElementById('login-btn').disabled = true;
+  try {
+    const { error } = await sb.auth.signInWithPassword({ email, password: pass });
+    if (error) throw error;
+    await initSession();
+  } catch (e) {
+    errEl.textContent = e.message || 'No se pudo entrar';
+    document.getElementById('login-btn').disabled = false;
+  }
+}
+
+async function logout() {
+  await sb.auth.signOut();
+  session = null;
+  document.getElementById('app-screen').classList.remove('active');
+  document.getElementById('login-screen').classList.add('active');
+}
+
+async function initSession() {
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) return false;
+  // Buscar rol del usuario en rrhh_usuarios
+  const { data: u } = await sb.from('rrhh_usuarios')
+    .select('rol, empleado_id, local_gerencia, activo')
+    .eq('auth_user_id', user.id)
+    .maybeSingle();
+  if (!u || !u.activo) {
+    alert('Tu usuario no tiene acceso a Tesorería.');
+    await logout();
+    return false;
+  }
+  session = {
+    user, email: user.email,
+    rol: u.rol,
+    empleado_id: u.empleado_id,
+    localGerencia: u.local_gerencia,
+  };
+  enterApp();
+  return true;
+}
+
+function enterApp() {
+  document.getElementById('login-screen').classList.remove('active');
+  document.getElementById('app-screen').classList.add('active');
+  document.getElementById('hdr-sub').textContent = '· ' + (session.rol === 'admin' ? 'Admin · ' + session.email : 'Encargada · ' + (session.localGerencia || ''));
+  if (session.rol === 'admin') {
+    document.getElementById('tab-scrapers').style.display = '';
+  }
+  cargar();
+  actualizarBtnNotifs();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// CARGAR DATOS BASE (cuentas + categorías)
+// ═══════════════════════════════════════════════════════════════════════
+async function cargar() {
+  document.getElementById('refresh-btn').innerHTML = '<span class="spinner"></span>';
+  try {
+    // Saldos por cuenta (la RLS filtra para gerente)
+    const { data: saldos } = await sb.from('tesoreria_saldos').select('*');
+    _cuentas = saldos || [];
+    // Categorías
+    const { data: cats } = await sb.from('tesoreria_categorias')
+      .select('*').eq('activa', true).order('orden_display');
+    _categorias = cats || [];
+    renderTab(currentTab);
+  } catch (e) {
+    document.getElementById('contenido').innerHTML = `<div class="empty"><div class="icon">⚠️</div>Error: ${escHtml(e.message)}</div>`;
+  } finally {
+    document.getElementById('refresh-btn').innerHTML = '↻';
+  }
+}
+
+function cambiarTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  renderTab(tab);
+}
+
+function renderTab(tab) {
+  if (tab === 'dashboard')   return renderDashboard();
+  if (tab === 'movimientos') return renderMovimientos();
+  if (tab === 'cargar')      return renderCargar();
+  if (tab === 'scrapers')    return renderScrapers();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// DASHBOARD: saldos agrupados
+// ═══════════════════════════════════════════════════════════════════════
+function renderDashboard() {
+  const cont = document.getElementById('contenido');
+  if (_cuentas.length === 0) {
+    cont.innerHTML = `<div class="empty"><div class="icon">💰</div>No tenés acceso a ninguna cuenta. Pedile al admin que te dé permisos.</div>`;
+    return;
+  }
+  // Agrupar
+  const grupos = {};
+  _cuentas.forEach(c => {
+    const g = c.grupo || 'Sin grupo';
+    if (!grupos[g]) grupos[g] = [];
+    grupos[g].push(c);
+  });
+
+  // Calcular total por moneda (solo ARS, para mostrar el "total global" más útil)
+  let totalARS = 0, totalUSD = 0;
+  _cuentas.forEach(c => {
+    if (c.moneda === 'USD') totalUSD += Number(c.saldo || 0);
+    else                    totalARS += Number(c.saldo || 0);
+  });
+
+  let html = '';
+  // Solo mostrar total para admin
+  if (session.rol === 'admin') {
+    html += `
+      <div class="total-card">
+        <div class="label">Total general (ARS)</div>
+        <div class="value">${fmt$(totalARS, 'ARS')}</div>
+        ${totalUSD > 0 ? `<div class="breakdown">+ ${fmt$(totalUSD, 'USD')} en USD</div>` : ''}
+      </div>
+    `;
+  }
+
+  for (const [grupo, cuentas] of Object.entries(grupos)) {
+    const subtot = cuentas.reduce((s, c) => s + Number(c.saldo || 0), 0);
+    const moneda = cuentas[0]?.moneda || 'ARS';
+    html += `
+      <div class="grupo">
+        <div class="grupo-title">${escHtml(grupo)} · subtotal ${fmt$(subtot, moneda)}</div>
+        <div class="cuentas-grid">
+          ${cuentas.map(c => `
+            <div class="cuenta-card" style="border-left-color:${c.color||'#f59e0b'};" onclick="verMovimientosCuenta(${c.id})">
+              <div class="cuenta-nombre">${c.icono||'💵'} ${escHtml(c.nombre)}</div>
+              <div class="cuenta-saldo ${Number(c.saldo) < 0 ? 'negativo' : ''}">${fmt$(c.saldo, c.moneda)}</div>
+              <div class="cuenta-moneda">${c.moneda}</div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  }
+  cont.innerHTML = html;
+}
+
+function verMovimientosCuenta(cuentaId) {
+  _movFiltroCuenta = cuentaId;
+  cambiarTab('movimientos');
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// MOVIMIENTOS
+// ═══════════════════════════════════════════════════════════════════════
+let _movFiltroCuenta = null;
+let _movFiltroDesde = null;
+let _movFiltroHasta = null;
+
+async function renderMovimientos() {
+  const cont = document.getElementById('contenido');
+  // Defaults: último mes
+  if (!_movFiltroDesde) {
+    const d = new Date(); d.setMonth(d.getMonth() - 1);
+    _movFiltroDesde = d.toISOString().split('T')[0];
+  }
+  if (!_movFiltroHasta) _movFiltroHasta = hoyISO();
+
+  const cuentasOpt = _cuentas.map(c => `<option value="${c.id}" ${_movFiltroCuenta==c.id?'selected':''}>${escHtml(c.nombre)}</option>`).join('');
+
+  cont.innerHTML = `
+    <div class="toolbar">
+      <label style="font-size:12px;color:var(--muted);">Cuenta:</label>
+      <select id="mov-cuenta" onchange="_movFiltroCuenta=this.value||null; renderMovimientos();">
+        <option value="">Todas</option>${cuentasOpt}
+      </select>
+      <label style="font-size:12px;color:var(--muted);">Desde:</label>
+      <input type="date" id="mov-desde" value="${_movFiltroDesde}" onchange="_movFiltroDesde=this.value; renderMovimientos();">
+      <label style="font-size:12px;color:var(--muted);">Hasta:</label>
+      <input type="date" id="mov-hasta" value="${_movFiltroHasta}" onchange="_movFiltroHasta=this.value; renderMovimientos();">
+      <div class="spacer"></div>
+      <button class="primary" onclick="cambiarTab('cargar')">➕ Cargar movimiento</button>
+    </div>
+    <div id="mov-lista"><div class="empty"><div class="spinner"></div></div></div>
+  `;
+
+  try {
+    let q = sb.from('tesoreria_movimientos_view')
+      .select('*')
+      .gte('fecha', _movFiltroDesde).lte('fecha', _movFiltroHasta)
+      .order('fecha', { ascending: false })
+      .order('id', { ascending: false })
+      .limit(500);
+    if (_movFiltroCuenta) q = q.eq('cuenta_id', _movFiltroCuenta);
+    const { data, error } = await q;
+    if (error) throw error;
+    renderListaMovimientos(data || []);
+  } catch (e) {
+    document.getElementById('mov-lista').innerHTML = `<div class="empty"><div class="icon">⚠️</div>Error: ${escHtml(e.message)}</div>`;
+  }
+}
+
+function renderListaMovimientos(movs) {
+  const cont = document.getElementById('mov-lista');
+  if (movs.length === 0) {
+    cont.innerHTML = `<div class="empty"><div class="icon">📭</div>Sin movimientos en el rango.</div>`;
+    return;
+  }
+  const totIng = movs.filter(m => +m.importe > 0).reduce((s, m) => s + +m.importe, 0);
+  const totEgr = movs.filter(m => +m.importe < 0).reduce((s, m) => s + +m.importe, 0);
+
+  cont.innerHTML = `
+    <div class="card" style="margin-bottom:10px;display:flex;gap:14px;flex-wrap:wrap;">
+      <div><span style="font-size:11px;color:var(--muted);text-transform:uppercase;">Movimientos:</span> <strong>${movs.length}</strong></div>
+      <div><span style="font-size:11px;color:var(--muted);text-transform:uppercase;">Ingresos:</span> <strong class="importe-ingreso">${fmt$(totIng)}</strong></div>
+      <div><span style="font-size:11px;color:var(--muted);text-transform:uppercase;">Egresos:</span> <strong class="importe-egreso">${fmt$(totEgr)}</strong></div>
+      <div><span style="font-size:11px;color:var(--muted);text-transform:uppercase;">Neto:</span> <strong>${fmt$(totIng+totEgr)}</strong></div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Fecha</th><th>Cuenta</th><th>Categoría</th><th>Descripción</th><th>Origen</th><th class="right">Importe</th>
+        </tr></thead>
+        <tbody>
+          ${movs.map(m => {
+            const origenChip = {
+              manual: 'origen-manual',
+              ventas_auto: 'origen-ventas',
+              scraper_galicia: 'origen-scraper', scraper_mp: 'origen-scraper', scraper_ppi: 'origen-scraper',
+              transferencia: 'origen-transferencia',
+              liquidacion: 'origen-ventas'
+            }[m.origen] || 'origen-manual';
+            const origenLabel = {
+              manual: 'manual', ventas_auto: 'ventas', scraper_galicia: 'Galicia', scraper_mp: 'MP', scraper_ppi: 'PPI',
+              transferencia: 'transferencia', liquidacion: 'liquidación'
+            }[m.origen] || m.origen;
+            const firma = m.requiere_firma && !m.firmado_at
+              ? `<span class="chip chip-firma-pendiente" title="Esperando firma">📝 firma pendiente</span>` : '';
+            return `<tr>
+              <td>${fmtFecha(m.fecha)}</td>
+              <td><span style="font-weight:600;">${escHtml(m.cuenta_nombre||'?')}</span></td>
+              <td>${escHtml(m.categoria_nombre||'—')}</td>
+              <td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escHtml(m.descripcion||'')}">${escHtml(m.descripcion||'')} ${firma}</td>
+              <td><span class="chip chip-${origenChip}">${origenLabel}</span></td>
+              <td class="right ${+m.importe >= 0 ? 'importe-ingreso' : 'importe-egreso'}">${fmt$(m.importe, m.cuenta_moneda)}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// CARGAR MOVIMIENTO
+// ═══════════════════════════════════════════════════════════════════════
+function renderCargar() {
+  const cont = document.getElementById('contenido');
+  const cuentasOpt = _cuentas.map(c => `<option value="${c.id}">${escHtml(c.nombre)} (${c.moneda})</option>`).join('');
+  const catsIngreso = _categorias.filter(c => c.tipo === 'ingreso');
+  const catsEgreso = _categorias.filter(c => c.tipo === 'egreso');
+  const catsTrans = _categorias.filter(c => c.tipo === 'transferencia');
+
+  cont.innerHTML = `
+    <div class="card" style="max-width:680px;margin:0 auto;">
+      <h3 class="card-title">➕ Cargar movimiento</h3>
+      <div class="form-row" style="margin-bottom:14px;">
+        <label>Tipo</label>
+        <div style="display:flex;gap:8px;">
+          <button onclick="setTipoCarga('ingreso')" id="ti-ingreso" class="btn-secondary" style="flex:1;background:var(--green-bg);color:#065f46;border-color:#a7f3d0;font-weight:600;">⬆ Ingreso</button>
+          <button onclick="setTipoCarga('egreso')" id="ti-egreso" class="btn-secondary" style="flex:1;">⬇ Egreso</button>
+          <button onclick="setTipoCarga('transferencia')" id="ti-trans" class="btn-secondary" style="flex:1;">🔄 Transferencia</button>
+        </div>
+      </div>
+      <div id="form-fields">
+        <div class="form-grid">
+          <div class="form-row"><label>Fecha</label><input type="date" id="f-fecha" value="${hoyISO()}"></div>
+          <div class="form-row"><label>Importe</label><input type="number" id="f-importe" step="any" placeholder="0"></div>
+          <div class="form-row"><label>Cuenta (de donde sale/entra)</label>
+            <select id="f-cuenta"><option value="">— Elegir —</option>${cuentasOpt}</select>
+          </div>
+          <div class="form-row"><label>Categoría</label>
+            <select id="f-categoria"><option value="">— Elegir —</option></select>
+          </div>
+          <div class="form-row" id="row-cuenta-destino" style="display:none;"><label>Cuenta destino</label>
+            <select id="f-cuenta-destino"><option value="">— Elegir —</option>${cuentasOpt}</select>
+          </div>
+          <div class="form-row full"><label>Descripción</label>
+            <textarea id="f-descripcion" placeholder="Detalle del movimiento (proveedor, comprobante, etc.)"></textarea>
+          </div>
+          ${session.rol === 'gerente' ? `
+            <div class="form-row full" style="background:#fef3c7;padding:10px 12px;border-radius:6px;font-size:12px;color:#92400e;">
+              📝 Los egresos que cargues quedan pendientes hasta que firmes el PDF y lo envíes por mail.
+            </div>
+          ` : ''}
+        </div>
+        <div class="form-actions">
+          <button class="btn-secondary" onclick="cambiarTab('dashboard')">Cancelar</button>
+          <button class="btn-primary" style="width:auto;padding:9px 24px;" id="btn-guardar" onclick="guardarMovimiento()">💾 Guardar</button>
+        </div>
+      </div>
+    </div>
+  `;
+  // Por default, tipo = egreso (es lo más común que carga la encargada)
+  setTipoCarga(session.rol === 'gerente' ? 'egreso' : 'ingreso');
+}
+
+let _tipoCarga = 'ingreso';
+function setTipoCarga(tipo) {
+  _tipoCarga = tipo;
+  document.querySelectorAll('#ti-ingreso, #ti-egreso, #ti-trans').forEach(b => {
+    b.style.background = ''; b.style.color = ''; b.style.borderColor = '';
+  });
+  if (tipo === 'ingreso') {
+    document.getElementById('ti-ingreso').style.background = 'var(--green-bg)';
+    document.getElementById('ti-ingreso').style.color = '#065f46';
+    document.getElementById('ti-ingreso').style.borderColor = '#a7f3d0';
+  } else if (tipo === 'egreso') {
+    document.getElementById('ti-egreso').style.background = 'var(--red-bg)';
+    document.getElementById('ti-egreso').style.color = '#991b1b';
+    document.getElementById('ti-egreso').style.borderColor = '#fca5a5';
+  } else {
+    document.getElementById('ti-trans').style.background = '#fef3c7';
+    document.getElementById('ti-trans').style.color = '#92400e';
+    document.getElementById('ti-trans').style.borderColor = '#fcd34d';
+  }
+  // Mostrar/ocultar cuenta destino
+  document.getElementById('row-cuenta-destino').style.display = tipo === 'transferencia' ? '' : 'none';
+  // Llenar categorías según tipo
+  const lista = _categorias.filter(c => c.tipo === tipo);
+  const sel = document.getElementById('f-categoria');
+  sel.innerHTML = '<option value="">— Elegir —</option>' + lista.map(c =>
+    `<option value="${c.id}">${c.icono||''} ${escHtml(c.nombre)}</option>`).join('');
+}
+
+async function guardarMovimiento() {
+  const btn = document.getElementById('btn-guardar');
+  const fecha = document.getElementById('f-fecha').value;
+  const importeAbs = Math.abs(parseFloat(document.getElementById('f-importe').value || '0'));
+  const cuentaId = parseInt(document.getElementById('f-cuenta').value);
+  const categoriaId = parseInt(document.getElementById('f-categoria').value) || null;
+  const desc = document.getElementById('f-descripcion').value.trim() || null;
+  if (!fecha || !importeAbs || !cuentaId) { toast('Completá fecha, importe y cuenta', true); return; }
+
+  btn.disabled = true; btn.textContent = 'Guardando…';
+  try {
+    if (_tipoCarga === 'transferencia') {
+      const cuentaDestino = parseInt(document.getElementById('f-cuenta-destino').value);
+      if (!cuentaDestino) throw new Error('Falta cuenta destino');
+      if (cuentaDestino === cuentaId) throw new Error('Origen y destino tienen que ser distintos');
+      // Insertamos los 2 movimientos, después los linkeamos
+      const meta = { fecha, categoria_id: categoriaId, descripcion: desc, origen: 'transferencia', cargado_por: session.email };
+      const { data: ins1, error: e1 } = await sb.from('tesoreria_movimientos')
+        .insert({ ...meta, cuenta_id: cuentaId, importe: -importeAbs })
+        .select().single();
+      if (e1) throw e1;
+      const { data: ins2, error: e2 } = await sb.from('tesoreria_movimientos')
+        .insert({ ...meta, cuenta_id: cuentaDestino, importe: importeAbs, transferencia_id: ins1.id })
+        .select().single();
+      if (e2) throw e2;
+      await sb.from('tesoreria_movimientos').update({ transferencia_id: ins2.id }).eq('id', ins1.id);
+    } else {
+      const signo = _tipoCarga === 'ingreso' ? 1 : -1;
+      const data = {
+        fecha, cuenta_id: cuentaId, categoria_id: categoriaId,
+        importe: signo * importeAbs,
+        descripcion: desc, origen: 'manual',
+        cargado_por: session.email,
+      };
+      // Si es egreso de gerente: requiere firma
+      if (session.rol === 'gerente' && _tipoCarga === 'egreso') {
+        data.requiere_firma = true;
+      }
+      const { error } = await sb.from('tesoreria_movimientos').insert(data);
+      if (error) throw error;
+    }
+    toast('✓ Movimiento cargado');
+    cambiarTab('dashboard');
+    cargar();
+  } catch (e) {
+    toast('Error: ' + e.message, true);
+    btn.disabled = false; btn.textContent = '💾 Guardar';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// SCRAPERS (admin)
+// ═══════════════════════════════════════════════════════════════════════
+async function renderScrapers() {
+  const cont = document.getElementById('contenido');
+  if (session.rol !== 'admin') { cont.innerHTML = '<div class="empty">Solo admin</div>'; return; }
+  cont.innerHTML = '<div class="empty"><div class="spinner"></div></div>';
+  const { data: scrapers, error } = await sb.from('tesoreria_scrapers').select('*').order('servicio');
+  if (error) { cont.innerHTML = `<div class="empty">Error: ${escHtml(error.message)}</div>`; return; }
+  cont.innerHTML = `
+    <div class="card" style="background:#fef3c7;border-left:4px solid #f59e0b;padding:12px;">
+      <div style="font-size:13px;font-weight:600;color:#92400e;">🤖 Scrapers — credenciales para bajar info bancaria automáticamente</div>
+      <div style="font-size:12px;color:#a16207;margin-top:4px;">
+        Los scrapers corren desde una PC tuya con Python + Playwright. Acá podés editar las credenciales (cifradas) y ver el último estado.
+      </div>
+    </div>
+    ${(scrapers||[]).map(s => `
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;">
+          <div>
+            <div style="font-size:15px;font-weight:700;">${escHtml(s.nombre)}</div>
+            <div style="font-size:12px;color:var(--muted);margin-top:2px;">${escHtml(s.servicio)}</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:6px;">
+              ${s.ultimo_run
+                ? `Último run: ${new Date(s.ultimo_run).toLocaleString('es-AR')} · ${s.ultimo_run_ok ? '✓ OK' : '✗ FALLÓ'}`
+                : 'Nunca corrió'}
+              ${s.ultimo_error ? `<br><span style="color:var(--red);">${escHtml(s.ultimo_error.slice(0,200))}</span>` : ''}
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;">
+            <div style="font-size:11px;font-weight:600;color:${s.activo?'#065f46':'#991b1b'};">${s.activo?'✓ ACTIVO':'✗ INACTIVO'}</div>
+            <button class="btn-secondary" onclick="abrirEditarScraper(${s.id})">✏️ Editar credenciales</button>
+          </div>
+        </div>
+      </div>
+    `).join('')}
+  `;
+}
+
+function abrirEditarScraper(id) {
+  const s = ([]).concat(window._scrapersCache || []).find(x => x.id === id);
+  // Si no está cacheada, la traemos
+  (async () => {
+    const { data } = await sb.from('tesoreria_scrapers').select('*').eq('id', id).single();
+    if (!data) return;
+    const html = `
+      <div id="modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;">
+        <div style="background:white;border-radius:12px;padding:22px;max-width:480px;width:100%;">
+          <h3 style="margin:0 0 8px;color:var(--primary-dark);">✏️ ${escHtml(data.nombre)}</h3>
+          <p style="font-size:12px;color:var(--muted);margin:0 0 16px;">Las credenciales quedan en la DB protegidas por RLS (solo admin las puede leer).</p>
+          <div class="form-row" style="margin-bottom:10px;"><label>Usuario</label>
+            <input type="text" id="sc-user" value="${escHtml(data.username||'')}"></div>
+          <div class="form-row" style="margin-bottom:10px;"><label>Contraseña</label>
+            <input type="password" id="sc-pass" value="${escHtml(data.password||'')}" placeholder="(dejar vacío para no cambiar)"></div>
+          <div class="form-row" style="margin-bottom:10px;"><label>URL de login</label>
+            <input type="text" id="sc-url" value="${escHtml(data.url_login||'')}"></div>
+          <div class="form-row" style="margin-bottom:10px;"><label>Frecuencia (horas)</label>
+            <input type="number" id="sc-freq" min="1" max="168" value="${data.frecuencia_horas||12}"></div>
+          <div class="form-row" style="margin-bottom:10px;">
+            <label><input type="checkbox" id="sc-activo" ${data.activo?'checked':''}> Scraper activo</label>
+          </div>
+          <div class="form-actions">
+            <button class="btn-secondary" onclick="document.getElementById('modal').remove()">Cancelar</button>
+            <button class="btn-primary" style="width:auto;padding:9px 18px;" onclick="guardarScraper(${id})">💾 Guardar</button>
+          </div>
+        </div>
+      </div>`;
+    document.body.insertAdjacentHTML('beforeend', html);
+  })();
+}
+
+async function guardarScraper(id) {
+  const updates = {
+    username: document.getElementById('sc-user').value.trim() || null,
+    url_login: document.getElementById('sc-url').value.trim() || null,
+    frecuencia_horas: parseInt(document.getElementById('sc-freq').value) || 12,
+    activo: document.getElementById('sc-activo').checked,
+  };
+  const passNew = document.getElementById('sc-pass').value;
+  if (passNew) updates.password = passNew;
+  try {
+    const { error } = await sb.from('tesoreria_scrapers').update(updates).eq('id', id);
+    if (error) throw error;
+    document.getElementById('modal')?.remove();
+    toast('✓ Scraper actualizado');
+    renderScrapers();
+  } catch (e) { toast('Error: ' + e.message, true); }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Push notifications (reuso patrón de Ventas / RRHH)
+// ═══════════════════════════════════════════════════════════════════════
+const VAPID_PUBLIC_KEY = 'BJr3r3C_T-euS9kqRZX561MoMjHtMl2wpMfS8oUA17xv1TdlA6E3S_5VKyQO2kqlqngPHrQSGr-PpJutXdgKsKc';
+
+const pushManager = (() => {
+  const soportado = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+  function urlB64ToUint8(b64) {
+    const pad = '='.repeat((4 - (b64.length % 4)) % 4);
+    const s = (b64 + pad).replace(/-/g, '+').replace(/_/g, '/');
+    const raw = atob(s);
+    const out = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+    return out;
+  }
+  async function estado() {
+    if (!soportado()) return 'no-soportado';
+    if (Notification.permission === 'denied') return 'bloqueado';
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    return sub ? 'activo' : 'inactivo';
+  }
+  // Por simplicidad reusamos rrhh_push_subscriptions ya que JP usa el mismo dispositivo
+  // para RRHH. Cuando tengamos las suscripciones específicas de Tesorería, las creamos.
+  // Por ahora solo mostramos el ícono pero no implementamos el flujo completo.
+  return { soportado, estado };
+})();
+
+async function toggleNotificaciones() {
+  toast('🔔 Push se configura desde la PWA RRHH por ahora. Próxima actualización: gestión propia.');
+}
+async function actualizarBtnNotifs() {
+  const btn = document.getElementById('btn-notifs');
+  if (!btn) return;
+  const est = await pushManager.estado();
+  btn.textContent = est === 'activo' ? '🔔' : '🔕';
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════════════════
+(async function init() {
+  const { data: { session: authSession } } = await sb.auth.getSession();
+  if (authSession?.user) {
+    await initSession();
+  }
+})();
+
+// Service worker
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./service-worker.js').catch(() => {});
+}
+</script>
+</body>
+</html>
