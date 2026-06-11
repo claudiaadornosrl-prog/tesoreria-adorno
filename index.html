@@ -260,6 +260,8 @@ async function initSession() {
     rol: u.rol,
     empleado_id: u.empleado_id,
     localGerencia: u.local_gerencia,
+    // verTodo: admin OR encargada de oficina (manejan toda la administración)
+    verTodo: (u.rol === 'admin') || (u.rol === 'gerente' && u.local_gerencia === 'oficina'),
   };
   enterApp();
   return true;
@@ -268,7 +270,12 @@ async function initSession() {
 function enterApp() {
   document.getElementById('login-screen').classList.remove('active');
   document.getElementById('app-screen').classList.add('active');
-  document.getElementById('hdr-sub').textContent = '· ' + (session.rol === 'admin' ? 'Admin · ' + session.email : 'Encargada · ' + (session.localGerencia || ''));
+  document.getElementById('hdr-sub').textContent = '· ' + (
+    session.rol === 'admin' ? 'Admin · ' + session.email :
+    session.localGerencia === 'oficina' ? 'Oficina (admin)' :
+    'Encargada · ' + (session.localGerencia || '')
+  );
+  // Scrapers solo admin real (las credenciales son sensibles)
   if (session.rol === 'admin') {
     document.getElementById('tab-scrapers').style.display = '';
   }
@@ -357,7 +364,7 @@ async function renderPendientesFirma() {
           </div>
           <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;">
             <button class="btn-primary" style="width:auto;padding:8px 14px;font-size:13px;" onclick="generarPDFEgreso(${m.id})">📄 Descargar PDF</button>
-            ${session.rol === 'admin' ? `<button class="btn-secondary" style="color:var(--red);border-color:#fca5a5;" onclick="cancelarMovimiento(${m.id})">✗ Cancelar</button>` : ''}
+            ${session.verTodo ? `<button class="btn-secondary" style="color:var(--red);border-color:#fca5a5;" onclick="cancelarMovimiento(${m.id})">✗ Cancelar</button>` : ''}
           </div>
         </div>
       </div>
@@ -543,8 +550,8 @@ function renderDashboard() {
   });
 
   let html = '';
-  // Solo mostrar total para admin
-  if (session.rol === 'admin') {
+  // Mostrar total general para admin y oficina
+  if (session.verTodo) {
     html += `
       <div class="total-card">
         <div class="label">Total general (ARS)</div>
@@ -686,7 +693,8 @@ function renderListaMovimientos(movs) {
 // ═══════════════════════════════════════════════════════════════════════
 function renderCargar() {
   const cont = document.getElementById('contenido');
-  const esGerente = session.rol === 'gerente';
+  // "Gerente restringido" = gerente de un local físico (no oficina ni admin)
+  const esGerente = session.rol === 'gerente' && !session.verTodo;
   // Para gerente: pre-seleccionar la (única) caja que ve
   const cajaGerente = esGerente ? _cuentas.find(c => c.tipo === 'caja') : null;
   const cuentasOpt = _cuentas.map(c => {
@@ -800,8 +808,9 @@ async function guardarMovimiento() {
         descripcion: desc, origen: 'manual',
         cargado_por: session.email,
       };
-      // Si es egreso de gerente: requiere firma
-      if (session.rol === 'gerente' && _tipoCarga === 'egreso') {
+      // Si es egreso de gerente de local físico: requiere firma
+      // (admin y encargada de oficina cargan sin firma)
+      if (session.rol === 'gerente' && !session.verTodo && _tipoCarga === 'egreso') {
         data.requiere_firma = true;
       }
       const { error } = await sb.from('tesoreria_movimientos').insert(data);
