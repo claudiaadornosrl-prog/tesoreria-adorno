@@ -1,5 +1,5 @@
 // Service Worker — Tesorería Adorno
-const CACHE_VERSION = 'tesoreria-adorno-v5-fix-scrapers-autocomplete';
+const CACHE_VERSION = 'tesoreria-adorno-v6-fix-autofill-readonly';
 const CACHE_ASSETS = ['./', './index.html', './manifest.webmanifest', './favicon.svg'];
 
 self.addEventListener('install', e => {

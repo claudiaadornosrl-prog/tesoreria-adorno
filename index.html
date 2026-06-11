@@ -876,13 +876,17 @@ function abrirEditarScraper(id) {
           <h3 style="margin:0 0 8px;color:var(--primary-dark);">✏️ ${escHtml(data.nombre)}</h3>
           <p style="font-size:12px;color:var(--muted);margin:0 0 16px;">Las credenciales quedan en la DB protegidas por RLS (solo admin las puede leer).</p>
           <div class="form-row" style="margin-bottom:10px;"><label>Usuario</label>
-            <input type="text" id="sc-user" value="${escHtml(data.username||'')}"
+            <input type="text" id="sc-user"
               autocomplete="off" data-form-type="other"
-              name="scraper_user_${Date.now()}" spellcheck="false"></div>
+              data-lpignore="true" data-1p-ignore="true"
+              name="scraper_user_${Date.now()}" spellcheck="false"
+              readonly></div>
           <div class="form-row" style="margin-bottom:10px;"><label>Contraseña</label>
-            <input type="password" id="sc-pass" value="${escHtml(data.password||'')}" placeholder="(dejar vacío para no cambiar)"
+            <input type="password" id="sc-pass" placeholder="(dejar vacío para no cambiar)"
               autocomplete="new-password" data-form-type="other"
-              name="scraper_pass_${Date.now()}" spellcheck="false"></div>
+              data-lpignore="true" data-1p-ignore="true"
+              name="scraper_pass_${Date.now()}" spellcheck="false"
+              readonly></div>
           <div class="form-row" style="margin-bottom:10px;"><label>URL de login</label>
             <input type="text" id="sc-url" value="${escHtml(data.url_login||'')}"></div>
           <div class="form-row" style="margin-bottom:10px;"><label>Frecuencia (horas)</label>
@@ -897,6 +901,23 @@ function abrirEditarScraper(id) {
         </div>
       </div>`;
     document.body.insertAdjacentHTML('beforeend', html);
+    // Truco anti-autofill: poblar valores ASÍNCRONO después del render.
+    // Chrome autocomplete corre al renderizar el input. Si el input está vacío al
+    // momento del render Y tiene readonly, Chrome no lo toca. Después seteamos el
+    // value por JS y removemos readonly al focus para que el usuario pueda editar.
+    setTimeout(() => {
+      const u = document.getElementById('sc-user');
+      const p = document.getElementById('sc-pass');
+      if (u) {
+        u.value = data.username || '';
+        u.addEventListener('focus', () => u.removeAttribute('readonly'), { once: true });
+      }
+      if (p) {
+        // password va vacío - JP debe re-tipearla si quiere cambiarla (ya está guardada)
+        p.value = '';
+        p.addEventListener('focus', () => p.removeAttribute('readonly'), { once: true });
+      }
+    }, 100);
   })();
 }
 
