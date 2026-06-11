@@ -876,9 +876,13 @@ function abrirEditarScraper(id) {
           <h3 style="margin:0 0 8px;color:var(--primary-dark);">✏️ ${escHtml(data.nombre)}</h3>
           <p style="font-size:12px;color:var(--muted);margin:0 0 16px;">Las credenciales quedan en la DB protegidas por RLS (solo admin las puede leer).</p>
           <div class="form-row" style="margin-bottom:10px;"><label>Usuario</label>
-            <input type="text" id="sc-user" value="${escHtml(data.username||'')}"></div>
+            <input type="text" id="sc-user" value="${escHtml(data.username||'')}"
+              autocomplete="off" data-form-type="other"
+              name="scraper_user_${Date.now()}" spellcheck="false"></div>
           <div class="form-row" style="margin-bottom:10px;"><label>Contraseña</label>
-            <input type="password" id="sc-pass" value="${escHtml(data.password||'')}" placeholder="(dejar vacío para no cambiar)"></div>
+            <input type="password" id="sc-pass" value="${escHtml(data.password||'')}" placeholder="(dejar vacío para no cambiar)"
+              autocomplete="new-password" data-form-type="other"
+              name="scraper_pass_${Date.now()}" spellcheck="false"></div>
           <div class="form-row" style="margin-bottom:10px;"><label>URL de login</label>
             <input type="text" id="sc-url" value="${escHtml(data.url_login||'')}"></div>
           <div class="form-row" style="margin-bottom:10px;"><label>Frecuencia (horas)</label>
