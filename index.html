@@ -686,10 +686,13 @@ function renderListaMovimientos(movs) {
 // ═══════════════════════════════════════════════════════════════════════
 function renderCargar() {
   const cont = document.getElementById('contenido');
-  const cuentasOpt = _cuentas.map(c => `<option value="${c.id}">${escHtml(c.nombre)} (${c.moneda})</option>`).join('');
-  const catsIngreso = _categorias.filter(c => c.tipo === 'ingreso');
-  const catsEgreso = _categorias.filter(c => c.tipo === 'egreso');
-  const catsTrans = _categorias.filter(c => c.tipo === 'transferencia');
+  const esGerente = session.rol === 'gerente';
+  // Para gerente: pre-seleccionar la (única) caja que ve
+  const cajaGerente = esGerente ? _cuentas.find(c => c.tipo === 'caja') : null;
+  const cuentasOpt = _cuentas.map(c => {
+    const sel = cajaGerente && c.id === cajaGerente.id ? 'selected' : '';
+    return `<option value="${c.id}" ${sel}>${escHtml(c.nombre)} (${c.moneda})</option>`;
+  }).join('');
 
   cont.innerHTML = `
     <div class="card" style="max-width:680px;margin:0 auto;">
@@ -697,17 +700,17 @@ function renderCargar() {
       <div class="form-row" style="margin-bottom:14px;">
         <label>Tipo</label>
         <div style="display:flex;gap:8px;">
-          <button onclick="setTipoCarga('ingreso')" id="ti-ingreso" class="btn-secondary" style="flex:1;background:var(--green-bg);color:#065f46;border-color:#a7f3d0;font-weight:600;">⬆ Ingreso</button>
+          <button onclick="setTipoCarga('ingreso')" id="ti-ingreso" class="btn-secondary" style="flex:1;${esGerente?'display:none;':''}">⬆ Ingreso</button>
           <button onclick="setTipoCarga('egreso')" id="ti-egreso" class="btn-secondary" style="flex:1;">⬇ Egreso</button>
-          <button onclick="setTipoCarga('transferencia')" id="ti-trans" class="btn-secondary" style="flex:1;">🔄 Transferencia</button>
+          ${esGerente ? '' : '<button onclick="setTipoCarga(\'transferencia\')" id="ti-trans" class="btn-secondary" style="flex:1;">🔄 Transferencia</button>'}
         </div>
       </div>
       <div id="form-fields">
         <div class="form-grid">
           <div class="form-row"><label>Fecha</label><input type="date" id="f-fecha" value="${hoyISO()}"></div>
           <div class="form-row"><label>Importe</label><input type="number" id="f-importe" step="any" placeholder="0"></div>
-          <div class="form-row"><label>Cuenta (de donde sale/entra)</label>
-            <select id="f-cuenta"><option value="">— Elegir —</option>${cuentasOpt}</select>
+          <div class="form-row"><label>${esGerente ? 'Caja' : 'Cuenta (de donde sale/entra)'}</label>
+            <select id="f-cuenta" ${esGerente ? 'disabled style="background:#f9fafb;"' : ''}>${esGerente ? '' : '<option value="">— Elegir —</option>'}${cuentasOpt}</select>
           </div>
           <div class="form-row"><label>Categoría</label>
             <select id="f-categoria"><option value="">— Elegir —</option></select>
@@ -718,7 +721,7 @@ function renderCargar() {
           <div class="form-row full"><label>Descripción</label>
             <textarea id="f-descripcion" placeholder="Detalle del movimiento (proveedor, comprobante, etc.)"></textarea>
           </div>
-          ${session.rol === 'gerente' ? `
+          ${esGerente ? `
             <div class="form-row full" style="background:#fef3c7;padding:10px 12px;border-radius:6px;font-size:12px;color:#92400e;">
               📝 Los egresos que cargues quedan pendientes hasta que firmes el PDF y lo envíes por mail.
             </div>
@@ -732,7 +735,7 @@ function renderCargar() {
     </div>
   `;
   // Por default, tipo = egreso (es lo más común que carga la encargada)
-  setTipoCarga(session.rol === 'gerente' ? 'egreso' : 'ingreso');
+  setTipoCarga(esGerente ? 'egreso' : 'ingreso');
 }
 
 let _tipoCarga = 'ingreso';
