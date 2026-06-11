@@ -8,6 +8,9 @@
 <meta name="theme-color" content="#f59e0b">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<!-- jsPDF + QR para generar comprobantes de egreso -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
 <style>
 :root {
   --primary: #f59e0b;
@@ -166,6 +169,7 @@ tbody tr:hover { background: var(--primary-light); }
     <button class="active" data-tab="dashboard" onclick="cambiarTab('dashboard')">📊 Saldos</button>
     <button data-tab="movimientos" onclick="cambiarTab('movimientos')">📋 Movimientos</button>
     <button data-tab="cargar" onclick="cambiarTab('cargar')">➕ Cargar</button>
+    <button data-tab="firma" onclick="cambiarTab('firma')" id="tab-firma">📝 Pendientes firma <span id="badge-firma" style="display:none;background:#dc2626;color:white;border-radius:999px;padding:1px 7px;font-size:11px;margin-left:4px;font-weight:700;"></span></button>
     <button data-tab="scrapers" onclick="cambiarTab('scrapers')" id="tab-scrapers" style="display:none;">🤖 Scrapers</button>
   </div>
 
@@ -303,7 +307,215 @@ function renderTab(tab) {
   if (tab === 'dashboard')   return renderDashboard();
   if (tab === 'movimientos') return renderMovimientos();
   if (tab === 'cargar')      return renderCargar();
+  if (tab === 'firma')       return renderPendientesFirma();
   if (tab === 'scrapers')    return renderScrapers();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// PENDIENTES DE FIRMA
+// ═══════════════════════════════════════════════════════════════════════
+async function renderPendientesFirma() {
+  const cont = document.getElementById('contenido');
+  cont.innerHTML = '<div class="empty"><div class="spinner"></div></div>';
+  const { data: pend, error } = await sb.from('tesoreria_movimientos_pendientes_firma')
+    .select('*').order('cargado_at', { ascending: false });
+  if (error) { cont.innerHTML = `<div class="empty">Error: ${escHtml(error.message)}</div>`; return; }
+
+  // Badge en el nav
+  const badge = document.getElementById('badge-firma');
+  if ((pend||[]).length > 0) { badge.textContent = pend.length; badge.style.display = ''; }
+  else                       { badge.style.display = 'none'; }
+
+  if (!pend || pend.length === 0) {
+    cont.innerHTML = `<div class="empty"><div class="icon">✅</div>No hay egresos pendientes de firma.</div>`;
+    return;
+  }
+
+  cont.innerHTML = `
+    <div class="card" style="background:#fef3c7;border-left:4px solid #f59e0b;padding:12px;">
+      <div style="font-size:13px;font-weight:600;color:#92400e;">📝 ${pend.length} egreso(s) pendiente(s) de firma</div>
+      <div style="font-size:12px;color:#a16207;margin-top:4px;">
+        Generá el PDF, firmalo y mandalo por mail a <strong>claudiaadornosrl@gmail.com</strong>.
+        El sistema lo va a detectar por el QR y marcar como firmado (entonces afecta el saldo).
+      </div>
+    </div>
+    ${pend.map(m => `
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
+          <div style="flex:1;min-width:240px;">
+            <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;">
+              ${escHtml(m.codigo_seguimiento||'')} · ${fmtFecha(m.fecha)} · ${escHtml(m.cuenta_nombre)}
+            </div>
+            <div style="font-size:20px;font-weight:700;color:var(--red);margin-top:4px;">${fmt$(m.importe)}</div>
+            <div style="font-size:13px;color:var(--text);margin-top:4px;">${escHtml(m.categoria_nombre||'Sin categoría')}</div>
+            ${m.descripcion ? `<div style="font-size:12px;color:var(--muted);margin-top:4px;font-style:italic;">"${escHtml(m.descripcion)}"</div>` : ''}
+            <div style="font-size:11px;color:var(--muted);margin-top:6px;">
+              Cargado por <strong>${escHtml(m.cargado_por||'?')}</strong>
+              hace <strong>${m.dias_pendiente} día(s)</strong>
+              ${m.dias_pendiente >= 3 ? '<span style="color:var(--red);">⚠ atrasado</span>' : ''}
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;">
+            <button class="btn-primary" style="width:auto;padding:8px 14px;font-size:13px;" onclick="generarPDFEgreso(${m.id})">📄 Descargar PDF</button>
+            ${session.rol === 'admin' ? `<button class="btn-secondary" style="color:var(--red);border-color:#fca5a5;" onclick="cancelarMovimiento(${m.id})">✗ Cancelar</button>` : ''}
+          </div>
+        </div>
+      </div>
+    `).join('')}
+  `;
+}
+
+async function cancelarMovimiento(id) {
+  const motivo = prompt('¿Por qué cancelás este movimiento? (queda registrado)');
+  if (motivo === null) return;
+  try {
+    const { error } = await sb.rpc('tesoreria_cancelar_movimiento', { p_mov_id: id, p_motivo: motivo });
+    if (error) throw error;
+    toast('✓ Cancelado'); renderPendientesFirma();
+  } catch (e) { toast('Error: ' + e.message, true); }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// PDF: comprobante de egreso con QR
+// ═══════════════════════════════════════════════════════════════════════
+async function generarPDFEgreso(movId) {
+  // Cargar movimiento + cuenta + categoría
+  const { data: m, error } = await sb.from('tesoreria_movimientos_view')
+    .select('*').eq('id', movId).single();
+  if (error || !m) { toast('No se pudo cargar el movimiento', true); return; }
+
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  const W = 210, H = 297, margen = 18;
+
+  // Header con logo de marca
+  doc.setFillColor(245, 158, 11);  // amber
+  doc.rect(0, 0, W, 4, 'F');
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(22);
+  doc.setTextColor(180, 83, 9);
+  doc.text('Claudia Adorno', margen, 22);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+  doc.setTextColor(100, 100, 100);
+  doc.text('CLAUDIA ADORNO SRL · CUIT 30-70967311-0', W - margen, 18, { align: 'right' });
+  doc.text('Buenos Aires, Argentina', W - margen, 22, { align: 'right' });
+
+  doc.setDrawColor(245, 158, 11);
+  doc.setLineWidth(0.5);
+  doc.line(margen, 28, W - margen, 28);
+
+  // Título
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(15);
+  doc.setTextColor(30, 41, 59);
+  doc.text('COMPROBANTE DE EGRESO DE CAJA', W/2, 42, { align: 'center' });
+
+  // Fecha del comprobante (carga, no del egreso)
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10);
+  doc.setTextColor(120, 120, 120);
+  doc.text(`Buenos Aires, ${new Date().toLocaleDateString('es-AR', { day:'numeric', month:'long', year:'numeric' })}`,
+           W - margen, 52, { align: 'right' });
+
+  // Box con datos del movimiento
+  let y = 65;
+  doc.setDrawColor(226, 232, 240);
+  doc.setFillColor(252, 252, 252);
+  doc.setLineWidth(0.3);
+  doc.roundedRect(margen, y, W - 2*margen, 60, 2, 2, 'FD');
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+  doc.setTextColor(120, 120, 120);
+  doc.text('CUENTA', margen + 6, y + 8);
+  doc.text('CATEGORÍA', margen + 6, y + 22);
+  doc.text('FECHA', margen + 6, y + 36);
+  doc.text('IMPORTE', W - margen - 6, y + 8, { align: 'right' });
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(13);
+  doc.setTextColor(30, 41, 59);
+  doc.text(m.cuenta_nombre || '—', margen + 6, y + 14);
+  doc.text(m.categoria_nombre || '—', margen + 6, y + 28);
+  doc.text(new Date(m.fecha + 'T12:00:00').toLocaleDateString('es-AR', { day:'2-digit', month:'long', year:'numeric' }), margen + 6, y + 42);
+
+  doc.setFontSize(18);
+  doc.setTextColor(220, 38, 38);
+  doc.text(fmt$(m.importe, m.cuenta_moneda), W - margen - 6, y + 18, { align: 'right' });
+
+  // Descripción
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+  doc.setTextColor(120, 120, 120);
+  doc.text('DETALLE', margen + 6, y + 50);
+  doc.setFontSize(11);
+  doc.setTextColor(30, 41, 59);
+  const lineas = doc.splitTextToSize(m.descripcion || 'Sin detalle', W - 2*margen - 12);
+  doc.text(lineas, margen + 6, y + 56);
+
+  // Texto de conformidad
+  y = 140;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(11);
+  doc.setTextColor(30, 41, 59);
+  const cuerpo = `Por la presente dejo constancia de la salida de $${Math.round(Math.abs(m.importe)).toLocaleString('es-AR')} de la caja "${m.cuenta_nombre}" por el concepto de "${m.categoria_nombre || 'movimiento manual'}". El movimiento queda firme una vez que devuelva este comprobante firmado.`;
+  const lineasCuerpo = doc.splitTextToSize(cuerpo, W - 2*margen);
+  doc.text(lineasCuerpo, margen, y, { lineHeightFactor: 1.6 });
+
+  // Firmas
+  y = 200;
+  doc.setDrawColor(180, 180, 180);
+  doc.setLineWidth(0.4);
+  doc.line(margen, y + 14, margen + 75, y + 14);
+  doc.line(W - margen - 75, y + 14, W - margen, y + 14);
+
+  doc.setFont('helvetica', 'italic');
+  doc.setFontSize(9);
+  doc.setTextColor(120, 120, 120);
+  doc.text('Firma autorizante', margen + 37, y + 18, { align: 'center' });
+  doc.text('Firma receptora del dinero', W - margen - 37, y + 18, { align: 'center' });
+
+  // QR con código MOV-XXXXX
+  try {
+    if (typeof qrcode === 'function') {
+      const codigoQR = m.codigo_seguimiento || ('MOV-' + String(m.id).padStart(5, '0'));
+      const qr = qrcode(0, 'M');
+      qr.addData(codigoQR);
+      qr.make();
+      const qrDataUrl = qr.createDataURL(4, 0);
+      doc.addImage(qrDataUrl, 'PNG', margen, H - 50, 22, 22);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(120, 120, 120);
+      doc.text('CÓDIGO DE SEGUIMIENTO', margen + 26, H - 44);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(12);
+      doc.setTextColor(180, 83, 9);
+      doc.text(codigoQR, margen + 26, H - 38);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(120, 120, 120);
+      doc.text('Una vez firmado, escaneá esta hoja y enviála a', margen + 26, H - 32);
+      doc.setFont('helvetica', 'bold');
+      doc.text('claudiaadornosrl@gmail.com', margen + 26, H - 28);
+      doc.setFont('helvetica', 'normal');
+      doc.text('Asunto del mail: "TESORERIA ' + codigoQR + '"', margen + 26, H - 24);
+    }
+  } catch (e) { console.warn('qr:', e); }
+
+  // Footer
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  doc.setTextColor(150, 150, 150);
+  doc.text(`Generado automáticamente · ${new Date().toLocaleString('es-AR')} · ${m.codigo_seguimiento || 'MOV-'+m.id}`,
+           W/2, H - 8, { align: 'center' });
+
+  const nombreArchivo = `${m.codigo_seguimiento || 'MOV-'+m.id} ${(m.cuenta_nombre||'').replace(/\s+/g,'_')} ${m.fecha}.pdf`;
+  doc.save(nombreArchivo);
+  toast('✓ PDF descargado · firmalo y mandalo por mail');
 }
 
 // ═══════════════════════════════════════════════════════════════════════
