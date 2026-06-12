@@ -656,7 +656,8 @@ function renderListaMovimientos(movs) {
     <div class="table-wrap">
       <table>
         <thead><tr>
-          <th>Fecha</th><th>Cuenta</th><th>Categoría</th><th>Descripción</th><th>Origen</th><th class="right">Importe</th>
+          <th>Fecha</th><th>Cuenta</th><th>Descripción</th>
+          <th class="right">Débitos</th><th class="right">Créditos</th><th class="right">Saldo</th>
         </tr></thead>
         <tbody>
           ${movs.map(m => {
@@ -673,13 +674,20 @@ function renderListaMovimientos(movs) {
             }[m.origen] || m.origen;
             const firma = m.requiere_firma && !m.firmado_at
               ? `<span class="chip chip-firma-pendiente" title="Esperando firma">📝 firma pendiente</span>` : '';
+            const imp = +m.importe;
+            const debito  = imp < 0 ? `<span class="importe-egreso">- ${fmt$(Math.abs(imp), m.cuenta_moneda)}</span>` : '';
+            const credito = imp > 0 ? `<span class="importe-ingreso">+ ${fmt$(imp, m.cuenta_moneda)}</span>` : '';
+            const saldo = (m.saldo_post !== null && m.saldo_post !== undefined)
+              ? fmt$(m.saldo_post, m.cuenta_moneda) : '—';
             return `<tr>
               <td>${fmtFecha(m.fecha)}</td>
               <td><span style="font-weight:600;">${escHtml(m.cuenta_nombre||'?')}</span></td>
-              <td>${escHtml(m.categoria_nombre||'—')}</td>
-              <td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escHtml(m.descripcion||'')}">${escHtml(m.descripcion||'')} ${firma}</td>
-              <td><span class="chip chip-${origenChip}">${origenLabel}</span></td>
-              <td class="right ${+m.importe >= 0 ? 'importe-ingreso' : 'importe-egreso'}">${fmt$(m.importe, m.cuenta_moneda)}</td>
+              <td style="max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escHtml(m.descripcion||'')}${m.categoria_nombre ? ' · '+escHtml(m.categoria_nombre) : ''}">
+                ${escHtml(m.descripcion||'')} <span class="chip chip-${origenChip}">${origenLabel}</span> ${firma}
+              </td>
+              <td class="right">${debito}</td>
+              <td class="right">${credito}</td>
+              <td class="right" style="color:var(--muted);">${saldo}</td>
             </tr>`;
           }).join('')}
         </tbody>
@@ -852,16 +860,36 @@ async function renderScrapers() {
                 ? `Último run: ${new Date(s.ultimo_run).toLocaleString('es-AR')} · ${s.ultimo_run_ok ? '✓ OK' : '✗ FALLÓ'}`
                 : 'Nunca corrió'}
               ${s.ultimo_error ? `<br><span style="color:var(--red);">${escHtml(s.ultimo_error.slice(0,200))}</span>` : ''}
+              ${s.activo && s.proximo_run && new Date(s.proximo_run) <= new Date()
+                ? `<br><span style="color:#b45309;font-weight:600;">⏳ En cola — esperando que la PC lo corra</span>`
+                : (s.activo && s.proximo_run
+                    ? `<br>Próximo run: ${new Date(s.proximo_run).toLocaleString('es-AR')}`
+                    : '')}
             </div>
           </div>
           <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;">
             <div style="font-size:11px;font-weight:600;color:${s.activo?'#065f46':'#991b1b'};">${s.activo?'✓ ACTIVO':'✗ INACTIVO'}</div>
+            ${s.activo ? `<button class="btn-primary" style="width:auto;padding:8px 14px;" onclick="ejecutarScraperAhora(${s.id}, '${escHtml(s.nombre)}')">▶️ Ejecutar ahora</button>` : ''}
             <button class="btn-secondary" onclick="abrirEditarScraper(${s.id})">✏️ Editar credenciales</button>
           </div>
         </div>
       </div>
     `).join('')}
   `;
+}
+
+async function ejecutarScraperAhora(id, nombre) {
+  // Marca el scraper como "vencido" (proximo_run en el pasado). El servicio
+  // main.py corriendo en loop en la PC lo detecta en el próximo polling
+  // (cada POLL_SECONDS, default 5 min) y lo ejecuta.
+  try {
+    const { error } = await sb.from('tesoreria_scrapers')
+      .update({ proximo_run: new Date(Date.now() - 60_000).toISOString() })
+      .eq('id', id);
+    if (error) throw error;
+    toast(`✓ ${nombre} encolado — la PC lo corre en el próximo ciclo (≤5 min). Requiere "py main.py" corriendo en la PC.`);
+    renderScrapers();
+  } catch (e) { toast('Error: ' + e.message, true); }
 }
 
 function abrirEditarScraper(id) {

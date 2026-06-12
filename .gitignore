@@ -1,0 +1,14 @@
+# Credenciales y secretos — NUNCA subir
+scrapers/.env
+
+# Perfil de Chrome del scraper (cookies de sesión del banco)
+scrapers/_state_galicia/
+scrapers/_state_*/
+
+# Python
+scrapers/__pycache__/
+*.pyc
+
+# Logs y archivos temporales del scraper
+scrapers/*.log
+scrapers/*.csv
