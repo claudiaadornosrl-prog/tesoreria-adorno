@@ -656,7 +656,7 @@ function renderListaMovimientos(movs) {
     <div class="table-wrap">
       <table>
         <thead><tr>
-          <th>Fecha</th><th>Cuenta</th><th>Descripción</th>
+          <th>Fecha</th><th>Cuenta</th><th>Local</th><th>Canal</th><th>Descripción</th>
           <th class="right">Débitos</th><th class="right">Créditos</th><th class="right">Saldo</th>
         </tr></thead>
         <tbody>
@@ -679,10 +679,19 @@ function renderListaMovimientos(movs) {
             const credito = imp > 0 ? `<span class="importe-ingreso">+ ${fmt$(imp, m.cuenta_moneda)}</span>` : '';
             const saldo = (m.saldo_post !== null && m.saldo_post !== undefined)
               ? fmt$(m.saldo_post, m.cuenta_moneda) : '—';
+            // Chips de local y canal con colores claros para Point/QR
+            const canalChip = m.canal
+              ? `<span class="chip" style="background:${m.canal==='qr'?'#dbeafe':m.canal==='point'?'#fef3c7':'#e5e7eb'};color:#374151;font-size:11px;">${escHtml(m.canal.toUpperCase())}</span>`
+              : '';
+            const localLabel = m.mov_local
+              ? `<span style="font-weight:600;text-transform:capitalize;">${escHtml(m.mov_local)}</span>`
+              : '<span style="color:var(--muted);">—</span>';
             return `<tr>
               <td>${fmtFecha(m.fecha)}</td>
               <td><span style="font-weight:600;">${escHtml(m.cuenta_nombre||'?')}</span></td>
-              <td style="max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escHtml(m.descripcion||'')}${m.categoria_nombre ? ' · '+escHtml(m.categoria_nombre) : ''}">
+              <td>${localLabel}</td>
+              <td>${canalChip || '<span style="color:var(--muted);">—</span>'}</td>
+              <td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escHtml(m.descripcion||'')}${m.categoria_nombre ? ' · '+escHtml(m.categoria_nombre) : ''}">
                 ${escHtml(m.descripcion||'')} <span class="chip chip-${origenChip}">${origenLabel}</span> ${firma}
               </td>
               <td class="right">${debito}</td>
