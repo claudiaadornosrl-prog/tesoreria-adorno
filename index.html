@@ -569,10 +569,19 @@ function renderDashboard() {
         <div class="grupo-title">${escHtml(grupo)} · subtotal ${fmt$(subtot, moneda)}</div>
         <div class="cuentas-grid">
           ${cuentas.map(c => `
-            <div class="cuenta-card" style="border-left-color:${c.color||'#f59e0b'};" onclick="verMovimientosCuenta(${c.id})">
-              <div class="cuenta-nombre">${c.icono||'💵'} ${escHtml(c.nombre)}</div>
-              <div class="cuenta-saldo ${Number(c.saldo) < 0 ? 'negativo' : ''}">${fmt$(c.saldo, c.moneda)}</div>
-              <div class="cuenta-moneda">${c.moneda}</div>
+            <div class="cuenta-card" style="border-left-color:${c.color||'#f59e0b'};position:relative;">
+              <div onclick="verMovimientosCuenta(${c.id})" style="cursor:pointer;">
+                <div class="cuenta-nombre">${c.icono||'💵'} ${escHtml(c.nombre)}</div>
+                <div class="cuenta-saldo ${Number(c.saldo) < 0 ? 'negativo' : ''}">${fmt$(c.saldo, c.moneda)}</div>
+                <div class="cuenta-moneda">${c.moneda}</div>
+              </div>
+              ${session.verTodo ? `
+                <button onclick="event.stopPropagation();abrirActualizarSaldo(${c.id})"
+                  title="Actualizar saldo (ancla)"
+                  style="position:absolute;top:8px;right:8px;background:transparent;border:1px solid var(--border);border-radius:6px;padding:3px 7px;font-size:11px;color:var(--muted);cursor:pointer;">
+                  🎯
+                </button>
+              ` : ''}
             </div>
           `).join('')}
         </div>
@@ -585,6 +594,77 @@ function renderDashboard() {
 function verMovimientosCuenta(cuentaId) {
   _movFiltroCuenta = cuentaId;
   cambiarTab('movimientos');
+}
+
+// ─── Actualizar saldo ancla manual ────────────────────────────────
+async function abrirActualizarSaldo(cuentaId) {
+  const cuenta = _cuentas.find(c => c.id === cuentaId);
+  if (!cuenta) return;
+  // Traer ancla actual
+  const { data: c } = await sb.from('tesoreria_cuentas')
+    .select('saldo_ancla, saldo_ancla_fecha').eq('id', cuentaId).single();
+  const ancladaActual = c?.saldo_ancla;
+  const fechaActual = c?.saldo_ancla_fecha || hoyISO();
+
+  const html = `
+    <div id="modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;">
+      <div style="background:white;border-radius:12px;padding:22px;max-width:480px;width:100%;">
+        <h3 style="margin:0 0 8px;color:var(--primary-dark);">🎯 Actualizar saldo de ${escHtml(cuenta.nombre)}</h3>
+        <p style="font-size:12px;color:var(--muted);margin:0 0 12px;">
+          Pegá el saldo REAL que ves en el panel de la cuenta a una fecha concreta.
+          El sistema lo usa como punto fijo y suma los movimientos posteriores para calcular el saldo actual.
+        </p>
+        ${ancladaActual != null ? `
+          <div style="background:#f3f4f6;padding:8px 12px;border-radius:6px;font-size:12px;margin-bottom:14px;">
+            <strong>Ancla actual:</strong> ${fmt$(ancladaActual, cuenta.moneda)} al ${fmtFecha(fechaActual)}
+          </div>
+        ` : `<div style="background:#fef3c7;padding:8px 12px;border-radius:6px;font-size:12px;margin-bottom:14px;">Sin ancla cargada todavía</div>`}
+        <div class="form-row" style="margin-bottom:10px;">
+          <label>Saldo real (${cuenta.moneda})</label>
+          <input type="number" id="ancla-saldo" step="0.01" value="${ancladaActual ?? ''}" placeholder="Ej: 1234567.89">
+        </div>
+        <div class="form-row" style="margin-bottom:14px;">
+          <label>Fecha del saldo</label>
+          <input type="date" id="ancla-fecha" value="${fechaActual}">
+        </div>
+        <div class="form-actions">
+          <button class="btn-secondary" onclick="document.getElementById('modal').remove()">Cancelar</button>
+          ${ancladaActual != null ? `<button class="btn-secondary" style="color:#dc2626;" onclick="borrarAncla(${cuentaId})">🗑 Borrar ancla</button>` : ''}
+          <button class="btn-primary" style="width:auto;padding:9px 18px;" onclick="guardarAncla(${cuentaId})">💾 Guardar</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+async function guardarAncla(cuentaId) {
+  const saldo = parseFloat(document.getElementById('ancla-saldo').value);
+  const fecha = document.getElementById('ancla-fecha').value;
+  if (isNaN(saldo) || !fecha) { toast('Saldo y fecha son obligatorios', true); return; }
+  const { error } = await sb.from('tesoreria_cuentas').update({
+    saldo_ancla: saldo,
+    saldo_ancla_fecha: fecha,
+    saldo_ancla_actualizado_at: new Date().toISOString(),
+    saldo_ancla_por: session.email || 'admin',
+  }).eq('id', cuentaId);
+  if (error) { toast('Error: ' + error.message, true); return; }
+  toast('✓ Saldo ancla actualizado');
+  document.getElementById('modal').remove();
+  cargar();
+}
+
+async function borrarAncla(cuentaId) {
+  if (!confirm('¿Borrar el ancla? El saldo va a calcularse solo desde los movimientos.')) return;
+  const { error } = await sb.from('tesoreria_cuentas').update({
+    saldo_ancla: null,
+    saldo_ancla_fecha: null,
+    saldo_ancla_actualizado_at: null,
+    saldo_ancla_por: null,
+  }).eq('id', cuentaId);
+  if (error) { toast('Error: ' + error.message, true); return; }
+  toast('✓ Ancla borrada');
+  document.getElementById('modal').remove();
+  cargar();
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -622,6 +702,15 @@ async function renderMovimientos() {
   `;
 
   try {
+    // Si hay cuenta filtrada, traer también las tenencias de esa cuenta
+    let tenencias = [];
+    if (_movFiltroCuenta) {
+      const { data: t } = await sb.from('tesoreria_tenencias')
+        .select('*').eq('cuenta_id', _movFiltroCuenta)
+        .order('valor_corriente', { ascending: false });
+      tenencias = t || [];
+    }
+
     let q = sb.from('tesoreria_movimientos_view')
       .select('*')
       .gte('fecha', _movFiltroDesde).lte('fecha', _movFiltroHasta)
@@ -631,22 +720,82 @@ async function renderMovimientos() {
     if (_movFiltroCuenta) q = q.eq('cuenta_id', _movFiltroCuenta);
     const { data, error } = await q;
     if (error) throw error;
-    renderListaMovimientos(data || []);
+    renderListaMovimientos(data || [], tenencias);
   } catch (e) {
     document.getElementById('mov-lista').innerHTML = `<div class="empty"><div class="icon">⚠️</div>Error: ${escHtml(e.message)}</div>`;
   }
 }
 
-function renderListaMovimientos(movs) {
+function renderTablaTenencias(tenencias) {
+  if (!tenencias || tenencias.length === 0) return '';
+  // Agrupar por tipo
+  const grupos = {};
+  tenencias.forEach(t => {
+    const tipo = t.tipo || 'Otros';
+    if (!grupos[tipo]) grupos[tipo] = [];
+    grupos[tipo].push(t);
+  });
+  const fmtCur = (n, c) => fmt$(n, c || 'USD');
+  const ultimoUpdate = tenencias.reduce((max, t) =>
+    !max || (t.actualizado_at > max) ? t.actualizado_at : max, null);
+
+  let html = `
+    <div class="card" style="margin-bottom:14px;padding:0;overflow:hidden;">
+      <div style="background:var(--primary-dark);color:white;padding:10px 14px;font-weight:600;display:flex;justify-content:space-between;align-items:center;">
+        <span>📈 Tenencias actuales</span>
+        ${ultimoUpdate ? `<span style="font-size:11px;font-weight:400;opacity:0.85;">Actualizado ${fmtFecha(ultimoUpdate.split('T')[0])}</span>` : ''}
+      </div>
+      <div class="table-wrap">
+        <table style="margin:0;">
+          <thead><tr>
+            <th>Especie</th>
+            <th>Tipo</th>
+            <th class="right">Cantidad</th>
+            <th class="right">Precio</th>
+            <th class="right">Valor corriente</th>
+          </tr></thead>
+          <tbody>
+  `;
+  for (const [tipo, items] of Object.entries(grupos)) {
+    const subt = items.reduce((s, t) => s + Number(t.valor_corriente || 0), 0);
+    const moneda = items[0]?.currency || 'USD';
+    items.forEach(t => {
+      html += `<tr>
+        <td>
+          <div style="font-weight:600;">${escHtml(t.ticker || '')}</div>
+          <div style="font-size:11px;color:var(--muted);">${escHtml(t.descripcion || '')}</div>
+        </td>
+        <td><span class="chip" style="background:#e5e7eb;color:#374151;font-size:11px;">${escHtml(tipo)}</span></td>
+        <td class="right">${Number(t.cantidad).toLocaleString('es-AR', {maximumFractionDigits: 4})}</td>
+        <td class="right">${fmtCur(t.precio, t.currency)}</td>
+        <td class="right" style="font-weight:600;">${fmtCur(t.valor_corriente, t.currency)}</td>
+      </tr>`;
+    });
+    html += `<tr style="background:#f9fafb;font-weight:600;">
+      <td colspan="4" class="right" style="padding-right:14px;">Subtotal ${escHtml(tipo)} (${escHtml(moneda)}):</td>
+      <td class="right">${fmtCur(subt, moneda)}</td>
+    </tr>`;
+  }
+  html += `
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+  return html;
+}
+
+function renderListaMovimientos(movs, tenencias = []) {
   const cont = document.getElementById('mov-lista');
+  const tablaTenencias = renderTablaTenencias(tenencias);
   if (movs.length === 0) {
-    cont.innerHTML = `<div class="empty"><div class="icon">📭</div>Sin movimientos en el rango.</div>`;
+    cont.innerHTML = tablaTenencias + `<div class="empty"><div class="icon">📭</div>Sin movimientos en el rango.</div>`;
     return;
   }
   const totIng = movs.filter(m => +m.importe > 0).reduce((s, m) => s + +m.importe, 0);
   const totEgr = movs.filter(m => +m.importe < 0).reduce((s, m) => s + +m.importe, 0);
 
-  cont.innerHTML = `
+  cont.innerHTML = tablaTenencias + `
     <div class="card" style="margin-bottom:10px;display:flex;gap:14px;flex-wrap:wrap;">
       <div><span style="font-size:11px;color:var(--muted);text-transform:uppercase;">Movimientos:</span> <strong>${movs.length}</strong></div>
       <div><span style="font-size:11px;color:var(--muted);text-transform:uppercase;">Ingresos:</span> <strong class="importe-ingreso">${fmt$(totIng)}</strong></div>
