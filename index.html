@@ -561,17 +561,101 @@ function renderDashboard() {
     `;
   }
 
+  // Tipos que se agrupan visualmente como "Inversiones" (drill-down)
+  const TIPOS_INVERSION = ['banco_fondo', 'banco_titulos', 'banco_pf'];
+
   for (const [grupo, cuentas] of Object.entries(grupos)) {
-    const subtot = cuentas.reduce((s, c) => s + Number(c.saldo || 0), 0);
-    const moneda = cuentas[0]?.moneda || 'ARS';
+    // Separar cuentas normales vs inversiones (las inversiones se agrupan en
+    // 2 cards virtuales por moneda: "Inversiones ARS" / "Inversiones USD")
+    const normales   = cuentas.filter(c => !TIPOS_INVERSION.includes(c.tipo));
+    const inversiones = cuentas.filter(c =>  TIPOS_INVERSION.includes(c.tipo));
+
+    // Armar las 2 cards virtuales de inversiones (si hay alguna cuenta de
+    // inversión en este grupo).
+    const monedasInv = [...new Set(inversiones.map(c => c.moneda))];
+    const cardsInversionVirtual = monedasInv.map(moneda => {
+      const cuentasMon = inversiones.filter(c => c.moneda === moneda);
+      const saldoTotal = cuentasMon.reduce((s, c) => s + Number(c.saldo || 0), 0);
+      return {
+        _virtual: true,
+        _grupo: grupo,
+        _moneda: moneda,
+        nombre: `Inversiones ${moneda === 'USD' ? 'Dólares' : 'Pesos'}`,
+        icono: '💼',
+        moneda,
+        saldo: saldoTotal,
+        color: '#f97316',
+      };
+    });
+
+    const todas = [...normales, ...cardsInversionVirtual];
+    if (!todas.length) continue;
+
+    const subtot = todas.reduce((s, c) => s + Number(c.saldo || 0), 0);
+    const moneda = todas[0]?.moneda || 'ARS';
     html += `
       <div class="grupo">
         <div class="grupo-title">${escHtml(grupo)} · subtotal ${fmt$(subtot, moneda)}</div>
         <div class="cuentas-grid">
-          ${cuentas.map(c => `
+          ${todas.map(c => {
+            const onClick = c._virtual
+              ? `verInversionesDe('${escHtml(c._grupo)}','${c._moneda}')`
+              : `verMovimientosCuenta(${c.id})`;
+            return `
             <div class="cuenta-card" style="border-left-color:${c.color||'#f59e0b'};position:relative;">
+              <div onclick="${onClick}" style="cursor:pointer;">
+                <div class="cuenta-nombre">${c.icono||'💵'} ${escHtml(c.nombre)} ${c._virtual ? '<span style="font-size:11px;color:var(--muted);">▸</span>' : ''}</div>
+                <div class="cuenta-saldo ${Number(c.saldo) < 0 ? 'negativo' : ''}">${fmt$(c.saldo, c.moneda)}</div>
+                <div class="cuenta-moneda">${c.moneda}</div>
+              </div>
+              ${(!c._virtual && session.verTodo) ? `
+                <button onclick="event.stopPropagation();abrirActualizarSaldo(${c.id})"
+                  title="Actualizar saldo (ancla)"
+                  style="position:absolute;top:8px;right:8px;background:transparent;border:1px solid var(--border);border-radius:6px;padding:3px 7px;font-size:11px;color:var(--muted);cursor:pointer;">
+                  🎯
+                </button>
+              ` : ''}
+            </div>
+            `;
+          }).join('')}
+        </div>
+      </div>
+    `;
+  }
+  cont.innerHTML = html;
+}
+
+// ─── Vista intermedia: inversiones de un grupo por moneda ──────────
+// Muestra 3 cards (FIMA / Títulos / PF) cuando el usuario clickea
+// "Inversiones Pesos" o "Inversiones Dólares" desde el dashboard.
+function verInversionesDe(grupo, moneda) {
+  const TIPOS_INVERSION = ['banco_fondo', 'banco_titulos', 'banco_pf'];
+  const cuentas = _cuentas.filter(c =>
+    c.grupo === grupo && c.moneda === moneda && TIPOS_INVERSION.includes(c.tipo)
+  );
+  const tipoLabel = {
+    banco_fondo:   { nombre: 'Fondos FIMA',  icono: '📈' },
+    banco_titulos: { nombre: 'Títulos',      icono: '📊' },
+    banco_pf:      { nombre: 'Plazo Fijo',   icono: '🔒' },
+  };
+  // Ordenar: fondos → títulos → PF
+  const ordenTipo = { banco_fondo: 1, banco_titulos: 2, banco_pf: 3 };
+  cuentas.sort((a, b) => ordenTipo[a.tipo] - ordenTipo[b.tipo]);
+  const subtot = cuentas.reduce((s, c) => s + Number(c.saldo || 0), 0);
+  const cont = document.getElementById('contenido');
+  cont.innerHTML = `
+    <div style="margin-bottom:12px;">
+      <button class="btn-secondary" onclick="cambiarTab('dashboard')" style="padding:6px 12px;font-size:13px;">‹ Volver</button>
+    </div>
+    <div class="grupo">
+      <div class="grupo-title">${escHtml(grupo)} · Inversiones ${moneda === 'USD' ? 'Dólares' : 'Pesos'} · subtotal ${fmt$(subtot, moneda)}</div>
+      <div class="cuentas-grid">
+        ${cuentas.map(c => {
+          const meta = tipoLabel[c.tipo] || { nombre: c.nombre, icono: '💵' };
+          return `
+            <div class="cuenta-card" style="border-left-color:${c.color||'#f97316'};position:relative;">
               <div onclick="verMovimientosCuenta(${c.id})" style="cursor:pointer;">
-                <div class="cuenta-nombre">${c.icono||'💵'} ${escHtml(c.nombre)}</div>
+                <div class="cuenta-nombre">${meta.icono} ${escHtml(meta.nombre)}</div>
                 <div class="cuenta-saldo ${Number(c.saldo) < 0 ? 'negativo' : ''}">${fmt$(c.saldo, c.moneda)}</div>
                 <div class="cuenta-moneda">${c.moneda}</div>
               </div>
@@ -583,12 +667,11 @@ function renderDashboard() {
                 </button>
               ` : ''}
             </div>
-          `).join('')}
-        </div>
+          `;
+        }).join('')}
       </div>
-    `;
-  }
-  cont.innerHTML = html;
+    </div>
+  `;
 }
 
 function verMovimientosCuenta(cuentaId) {
