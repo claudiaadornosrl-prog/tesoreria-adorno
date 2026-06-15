@@ -668,6 +668,53 @@ async function borrarAncla(cuentaId) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// NOTAS DE MOVIMIENTOS
+// ═══════════════════════════════════════════════════════════════════════
+async function abrirNotaMov(movId) {
+  // Traer la nota actual
+  const { data, error } = await sb.from('tesoreria_movimientos')
+    .select('id, nota, descripcion, fecha, importe')
+    .eq('id', movId).single();
+  if (error) { toast('Error: ' + error.message, true); return; }
+  const m = data;
+  const notaActual = m.nota || '';
+  const html = `
+    <div class="modal-bg" onclick="if(event.target===this) this.remove();">
+      <div class="modal" style="max-width:520px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <h3 style="margin:0;">📌 Nota del movimiento</h3>
+          <button class="btn-secondary" style="padding:4px 10px;" onclick="document.getElementById('modal-nota').remove();">✕</button>
+        </div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:10px;line-height:1.4;">
+          <strong>${escHtml(m.descripcion || '')}</strong><br>
+          ${fmtFecha(m.fecha)} · ${fmt$(+m.importe)}
+        </div>
+        <textarea id="nota-text" placeholder="Escribí una nota para este movimiento..." style="width:100%;min-height:120px;padding:10px;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:14px;box-sizing:border-box;">${escHtml(notaActual)}</textarea>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;">
+          ${notaActual ? `<button class="btn-secondary" onclick="guardarNotaMov(${movId}, '')">🗑 Borrar nota</button>` : ''}
+          <button class="primary" onclick="guardarNotaMov(${movId}, document.getElementById('nota-text').value)">💾 Guardar</button>
+        </div>
+      </div>
+    </div>
+  `;
+  const wrap = document.createElement('div');
+  wrap.id = 'modal-nota';
+  wrap.innerHTML = html;
+  document.body.appendChild(wrap);
+  setTimeout(() => document.getElementById('nota-text')?.focus(), 50);
+}
+
+async function guardarNotaMov(movId, texto) {
+  const nota = (texto || '').trim() || null;
+  const { error } = await sb.from('tesoreria_movimientos')
+    .update({ nota }).eq('id', movId);
+  if (error) { toast('Error: ' + error.message, true); return; }
+  toast(nota ? '✓ Nota guardada' : '✓ Nota borrada');
+  document.getElementById('modal-nota')?.remove();
+  renderMovimientos();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // MOVIMIENTOS
 // ═══════════════════════════════════════════════════════════════════════
 let _movFiltroCuenta = null;
@@ -818,6 +865,7 @@ function renderListaMovimientos(movs, tenencias = []) {
     <div class="table-wrap">
       <table>
         <thead><tr>
+          <th style="width:30px;"></th>
           <th>Fecha</th><th>Cuenta</th><th>Local</th><th>Canal</th><th>Descripción</th>
           <th class="right">Débitos</th><th class="right">Créditos</th><th class="right">Saldo</th>
         </tr></thead>
@@ -860,7 +908,14 @@ function renderListaMovimientos(movs, tenencias = []) {
               ? `<div style="font-size:11px;color:var(--muted);margin-top:3px;line-height:1.3;">${extraItems.join(' · ')}</div>`
               : '';
             const tieneExtra = extraItems.length > 0;
-            return `<tr>
+            // Nota: si hay nota, fila tintada amarillo claro + icono de chincheta lleno
+            const tieneNota = !!(m.nota && m.nota.trim());
+            const trStyle = tieneNota ? 'background:#fef9c3;' : '';
+            const notaIcon = tieneNota
+              ? `<button class="btn-icon" onclick="abrirNotaMov(${m.id})" title="${escHtml(m.nota)}" style="background:none;border:none;cursor:pointer;font-size:16px;padding:2px;">📌</button>`
+              : `<button class="btn-icon" onclick="abrirNotaMov(${m.id})" title="Agregar nota" style="background:none;border:none;cursor:pointer;font-size:14px;padding:2px;opacity:0.35;">📝</button>`;
+            return `<tr style="${trStyle}">
+              <td style="text-align:center;">${notaIcon}</td>
               <td>${fmtFecha(m.fecha)}</td>
               <td><span style="font-weight:600;">${escHtml(m.cuenta_nombre||'?')}</span></td>
               <td>${localLabel}</td>
@@ -868,6 +923,7 @@ function renderListaMovimientos(movs, tenencias = []) {
               <td style="max-width:320px;${tieneExtra ? '' : 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'}" title="${escHtml(m.descripcion||'')}${m.categoria_nombre ? ' · '+escHtml(m.categoria_nombre) : ''}">
                 <div style="${tieneExtra ? 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;' : ''}">${escHtml(m.descripcion||'')} <span class="chip chip-${origenChip}">${origenLabel}</span> ${firma}</div>
                 ${subDesc}
+                ${tieneNota ? `<div style="font-size:11px;color:#854d0e;margin-top:3px;font-style:italic;">📌 ${escHtml(m.nota)}</div>` : ''}
               </td>
               <td class="right">${debito}</td>
               <td class="right">${credito}</td>
