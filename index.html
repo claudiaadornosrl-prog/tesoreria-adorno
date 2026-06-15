@@ -1124,9 +1124,12 @@ async function confirmarImportarPaste() {
   const cuentaId = window._pasteCuentaId;
   if (!movs?.length || !cuentaId) { toast('Nada para importar', true); return; }
 
-  // Helper para hash (mismo que el script Python, simplificado)
+  // Helper para hash. IMPORTANTE: mismo formato que scraper_galicia.py
+  // — NO incluye saldo, porque Galicia recalcula el saldo de cada mov
+  // cuando un cheque pendiente se acredita y reordena las filas. Si
+  // incluyéramos saldo, el mismo evento se duplicaría.
   async function hashMov(fecha, desc, importe, saldo) {
-    const raw = `${fecha}|${desc}|${importe.toFixed(2)}||${(saldo||0).toFixed(2)}`;
+    const raw = `${fecha}|${desc}|${importe.toFixed(2)}|`;
     const buf = new TextEncoder().encode(raw);
     const h = await crypto.subtle.digest('SHA-256', buf);
     return [...new Uint8Array(h)].map(b => b.toString(16).padStart(2,'0')).join('').slice(0,32);
