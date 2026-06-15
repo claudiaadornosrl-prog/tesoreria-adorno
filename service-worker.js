@@ -1,5 +1,5 @@
 // Service Worker — Tesorería Adorno
-const CACHE_VERSION = 'tesoreria-adorno-v13-hash-merge-pendientes';
+const CACHE_VERSION = 'tesoreria-adorno-v14-expand-detalles-orden';
 const CACHE_ASSETS = ['./', './index.html', './manifest.webmanifest', './favicon.svg'];
 
 self.addEventListener('install', e => {
