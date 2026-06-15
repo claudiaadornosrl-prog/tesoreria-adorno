@@ -883,7 +883,10 @@ function renderCargar() {
 
   cont.innerHTML = `
     <div class="card" style="max-width:680px;margin:0 auto;">
-      <h3 class="card-title">➕ Cargar movimiento</h3>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+        <h3 class="card-title" style="margin:0;">➕ Cargar movimiento</h3>
+        ${session.verTodo ? `<button class="btn-secondary" style="font-size:12px;padding:6px 10px;" onclick="abrirImportarPaste()">📋 Pegar tabla del banco</button>` : ''}
+      </div>
       <div class="form-row" style="margin-bottom:14px;">
         <label>Tipo</label>
         <div style="display:flex;gap:8px;">
@@ -951,6 +954,215 @@ function setTipoCarga(tipo) {
   const sel = document.getElementById('f-categoria');
   sel.innerHTML = '<option value="">— Elegir —</option>' + lista.map(c =>
     `<option value="${c.id}">${c.icono||''} ${escHtml(c.nombre)}</option>`).join('');
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// IMPORTAR PEGADO DE TABLA (Galicia y similares)
+// ═══════════════════════════════════════════════════════════════════════
+function abrirImportarPaste() {
+  // Cuentas bancarias seleccionables (no cajas)
+  const cuentasOpt = _cuentas
+    .filter(c => c.tipo !== 'caja')
+    .map(c => `<option value="${c.id}">${escHtml(c.nombre)} (${c.moneda})</option>`)
+    .join('');
+
+  const html = `
+    <div id="modal-paste" style="position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;overflow:auto;">
+      <div style="background:white;border-radius:12px;padding:22px;max-width:920px;width:100%;max-height:90vh;overflow:auto;">
+        <h3 style="margin:0 0 6px;color:var(--primary-dark);">📋 Importar movimientos desde el banco</h3>
+        <p style="font-size:12px;color:var(--muted);margin:0 0 14px;">
+          Andá a Galicia Office, expandí los detalles con la flecha ↑↓ del header, seleccioná la tabla con Ctrl+A o seleccioná solo lo que querés cargar, copiá (Ctrl+C) y pegá acá.
+        </p>
+        <div class="form-row" style="margin-bottom:10px;">
+          <label>Cuenta destino</label>
+          <select id="paste-cuenta">
+            <option value="">— Elegir cuenta —</option>
+            ${cuentasOpt}
+          </select>
+        </div>
+        <div class="form-row" style="margin-bottom:10px;">
+          <label>Pegá la tabla copiada (incluí los detalles si están expandidos)</label>
+          <textarea id="paste-textarea" rows="10" style="font-family:'Courier New',monospace;font-size:12px;width:100%;" placeholder="Ej:&#10;16/06/2026  Transferencia De Cuer  + $1.000,00  $1.782.072,59&#10;CLAUDIA ADORNO S.R.L&#10;30709673110&#10;0000003100069880789195&#10;..."></textarea>
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:14px;">
+          <button class="btn-secondary" onclick="document.getElementById('modal-paste').remove()">Cancelar</button>
+          <button class="btn-primary" style="width:auto;padding:9px 18px;" onclick="analizarPaste()">🔍 Analizar</button>
+        </div>
+        <div id="paste-preview"></div>
+      </div>
+    </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+// Parser de la tabla pegada de Galicia
+function parsearTablaPegada(texto) {
+  const lineas = texto.split('\n').map(l => l.trim()).filter(l => l);
+  const movs = [];
+  const reFecha = /^(\d{1,2}\/\d{1,2}\/\d{4})/;
+  const reCuit = /^\d{11}$/;
+  const reCbu = /^\d{20,22}$/;
+  // Detectar importe (con signo y formato AR: "- $1.234,56" o "+ $1.234,56" o "$1.234,56")
+  const reMoney = /([+\-])?\s*\$\s*([\d.]+,\d{2})/g;
+
+  let i = 0;
+  while (i < lineas.length) {
+    const m = lineas[i].match(reFecha);
+    if (!m) { i++; continue; }
+
+    // Encontrar todos los montos en esta línea — el primero suele ser débito/crédito, el segundo el saldo
+    const linea = lineas[i];
+    const montos = [];
+    let mm;
+    const reM = /([+\-])?\s*\$\s*([\d.]+,\d{2})/g;
+    while ((mm = reM.exec(linea)) !== null) {
+      const signo = mm[1] === '-' ? -1 : 1;
+      const valor = parseFloat(mm[2].replace(/\./g, '').replace(',', '.'));
+      montos.push(signo * valor);
+    }
+
+    const fechaStr = m[1];
+    const [d, mes, a] = fechaStr.split('/');
+    const fecha = `${a}-${mes.padStart(2,'0')}-${d.padStart(2,'0')}`;
+
+    // Descripción: quitar fecha y montos
+    let desc = linea.replace(reFecha, '').replace(/[+\-]?\s*\$\s*[\d.]+,\d{2}/g, '').trim();
+    desc = desc.replace(/\s+/g, ' ');
+
+    const importe = montos.length > 0 ? montos[0] : 0;
+    const saldo = montos.length > 1 ? Math.abs(montos[1]) : null;
+
+    // Mirar líneas siguientes para detalle (hasta encontrar otra fecha)
+    let razonSocial = null, cuit = null, cbu = null;
+    let j = i + 1;
+    while (j < lineas.length && !reFecha.test(lineas[j])) {
+      const sub = lineas[j];
+      if (reCuit.test(sub)) cuit = sub;
+      else if (reCbu.test(sub)) cbu = sub;
+      else if (sub.length > 3 && !sub.startsWith('$') && !sub.match(/^\d/)) {
+        if (!razonSocial) razonSocial = sub;
+      }
+      j++;
+    }
+
+    movs.push({
+      fecha, fechaStr,
+      descripcion: desc.substring(0, 200),
+      importe,
+      saldo,
+      razonSocial,
+      cuit,
+      cbu,
+    });
+    i = j;
+  }
+  return movs;
+}
+
+function analizarPaste() {
+  const cuentaId = parseInt(document.getElementById('paste-cuenta').value);
+  const texto = document.getElementById('paste-textarea').value;
+  if (!cuentaId) { toast('Elegí la cuenta destino', true); return; }
+  if (!texto.trim()) { toast('Pegá la tabla del banco', true); return; }
+
+  const movs = parsearTablaPegada(texto);
+  if (movs.length === 0) {
+    document.getElementById('paste-preview').innerHTML = `
+      <div style="background:#fef3c7;padding:12px;border-radius:6px;color:#92400e;">
+        ⚠ No detecté movimientos. Asegurate de que cada fila empiece con una fecha en formato DD/MM/AAAA.
+      </div>`;
+    return;
+  }
+
+  // Guardar resultados temporalmente
+  window._pasteMovs = movs;
+  window._pasteCuentaId = cuentaId;
+
+  const cuenta = _cuentas.find(c => c.id === cuentaId);
+  const conDetalle = movs.filter(m => m.cuit || m.cbu || m.razonSocial).length;
+  const totalIng = movs.filter(m => m.importe > 0).reduce((s,m) => s + m.importe, 0);
+  const totalEgr = movs.filter(m => m.importe < 0).reduce((s,m) => s + m.importe, 0);
+
+  document.getElementById('paste-preview').innerHTML = `
+    <div class="card" style="background:#f9fafb;margin-bottom:12px;padding:10px 12px;">
+      <strong>${movs.length} movimientos detectados</strong>
+      &nbsp;·&nbsp; ${conDetalle} con detalle (CUIT/CBU/razón social)
+      &nbsp;·&nbsp; Ingresos: ${fmt$(totalIng, cuenta.moneda)}
+      &nbsp;·&nbsp; Egresos: ${fmt$(totalEgr, cuenta.moneda)}
+    </div>
+    <div class="table-wrap" style="max-height:300px;overflow-y:auto;">
+      <table>
+        <thead><tr>
+          <th>Fecha</th>
+          <th>Descripción</th>
+          <th class="right">Importe</th>
+          <th>Razón social</th>
+          <th>CUIT</th>
+          <th>CBU</th>
+        </tr></thead>
+        <tbody>
+          ${movs.map(m => `
+            <tr>
+              <td>${m.fechaStr}</td>
+              <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escHtml(m.descripcion)}">${escHtml(m.descripcion)}</td>
+              <td class="right" style="color:${m.importe < 0 ? 'var(--danger)' : 'var(--success)'};font-weight:600;">${m.importe < 0 ? '−' : '+'} ${fmt$(Math.abs(m.importe), cuenta.moneda)}</td>
+              <td style="font-size:11px;">${escHtml(m.razonSocial || '—')}</td>
+              <td style="font-size:11px;font-family:monospace;">${m.cuit || '—'}</td>
+              <td style="font-size:10px;font-family:monospace;">${m.cbu || '—'}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+    <div style="margin-top:12px;display:flex;justify-content:flex-end;">
+      <button class="btn-primary" style="width:auto;padding:9px 18px;" onclick="confirmarImportarPaste()">💾 Importar ${movs.length} movimientos</button>
+    </div>
+  `;
+}
+
+async function confirmarImportarPaste() {
+  const movs = window._pasteMovs;
+  const cuentaId = window._pasteCuentaId;
+  if (!movs?.length || !cuentaId) { toast('Nada para importar', true); return; }
+
+  // Helper para hash (mismo que el script Python, simplificado)
+  async function hashMov(fecha, desc, importe, saldo) {
+    const raw = `${fecha}|${desc}|${importe.toFixed(2)}||${(saldo||0).toFixed(2)}`;
+    const buf = new TextEncoder().encode(raw);
+    const h = await crypto.subtle.digest('SHA-256', buf);
+    return [...new Uint8Array(h)].map(b => b.toString(16).padStart(2,'0')).join('').slice(0,32);
+  }
+
+  const rows = [];
+  for (const m of movs) {
+    const extra = { metodo: 'paste_manual' };
+    if (m.razonSocial) extra.razon_social = m.razonSocial;
+    if (m.cuit) extra.cuit = m.cuit;
+    if (m.cbu) extra.cbu = m.cbu;
+    const hash = await hashMov(m.fecha, m.descripcion, m.importe, m.saldo);
+    rows.push({
+      cuenta_id: cuentaId,
+      fecha: m.fecha,
+      importe: m.importe,
+      descripcion: m.descripcion,
+      origen: 'scraper_galicia',
+      controlado: false,
+      hash_externo: hash,
+      saldo_post: m.saldo,
+      extra,
+      cargado_por: session.email || 'paste_manual',
+    });
+  }
+
+  // Upsert con ignore-duplicates por hash
+  const { error } = await sb.from('tesoreria_movimientos').upsert(rows, {
+    onConflict: 'cuenta_id,hash_externo',
+    ignoreDuplicates: true,
+  });
+  if (error) { toast('Error: ' + error.message, true); return; }
+
+  toast(`✓ ${rows.length} movimientos importados`);
+  document.getElementById('modal-paste').remove();
+  cargar();
 }
 
 async function guardarMovimiento() {
