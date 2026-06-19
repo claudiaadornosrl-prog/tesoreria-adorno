@@ -170,6 +170,7 @@ tbody tr:hover { background: var(--primary-light); }
     <button data-tab="movimientos" onclick="cambiarTab('movimientos')">📋 Movimientos</button>
     <button data-tab="cargar" onclick="cambiarTab('cargar')">➕ Cargar</button>
     <button data-tab="firma" onclick="cambiarTab('firma')" id="tab-firma">📝 Pendientes firma <span id="badge-firma" style="display:none;background:#dc2626;color:white;border-radius:999px;padding:1px 7px;font-size:11px;margin-left:4px;font-weight:700;"></span></button>
+    <button data-tab="pendientes" onclick="cambiarTab('pendientes')" id="tab-pendientes">💸 Pagos a hacer <span id="badge-pendientes" style="display:none;background:#dc2626;color:white;border-radius:999px;padding:1px 7px;font-size:11px;margin-left:4px;font-weight:700;"></span></button>
     <button data-tab="scrapers" onclick="cambiarTab('scrapers')" id="tab-scrapers" style="display:none;">🤖 Scrapers</button>
   </div>
 
@@ -297,6 +298,7 @@ async function cargar() {
       .select('*').eq('activa', true).order('orden_display');
     _categorias = cats || [];
     renderTab(currentTab);
+    refrescarBadgePagosPendientes();
   } catch (e) {
     document.getElementById('contenido').innerHTML = `<div class="empty"><div class="icon">⚠️</div>Error: ${escHtml(e.message)}</div>`;
   } finally {
@@ -315,6 +317,7 @@ function renderTab(tab) {
   if (tab === 'movimientos') return renderMovimientos();
   if (tab === 'cargar')      return renderCargar();
   if (tab === 'firma')       return renderPendientesFirma();
+  if (tab === 'pendientes')  return renderPagosPendientes();
   if (tab === 'scrapers')    return renderScrapers();
 }
 
@@ -1567,6 +1570,286 @@ async function actualizarBtnNotifs() {
   const est = await pushManager.estado();
   btn.textContent = est === 'activo' ? '🔔' : '🔕';
 }
+
+// ═══════════════════════════════════════════════════════════════════════
+// PAGOS PENDIENTES (cuentas por pagar)
+// ═══════════════════════════════════════════════════════════════════════
+const CAT_LABELS = {
+  servicios: '🔌 Servicios',
+  alquiler:  '🏬 Alquiler',
+  impuestos: '🏛️ Impuestos',
+  sueldos:   '👥 Sueldos',
+  proveedores: '📦 Proveedores',
+  tarjetas:  '💳 Tarjetas',
+  bancos:    '🏦 Bancos',
+  honorarios: '👨‍⚖️ Honorarios',
+  adelantos: '💰 Adelantos / Préstamos',
+  otros:     '📌 Otros',
+};
+const MEDIO_LABELS = {
+  efectivo: 'Efectivo', transferencia: 'Transferencia', debito_auto: 'Débito auto',
+  cheque: 'Cheque', tarjeta_credito: 'Tarjeta crédito', otro: 'Otro',
+};
+const URGENCIA_CFG = {
+  vencido:     { label: '⚠ Vencidos',    color: '#dc2626', bg: '#fef2f2' },
+  hoy:         { label: '⏰ Hoy',         color: '#ea580c', bg: '#fff7ed' },
+  esta_semana: { label: '📅 Esta semana', color: '#ca8a04', bg: '#fefce8' },
+  este_mes:    { label: '🗓️ Este mes',   color: '#0891b2', bg: '#ecfeff' },
+  futuro:      { label: '⏳ Futuro',      color: '#475569', bg: '#f8fafc' },
+};
+let _pagosPendientesCache = [];
+let _filtroCategoria = '', _filtroLocal = '', _filtroMostrarPagados = false;
+
+async function refrescarBadgePagosPendientes() {
+  try {
+    const { count } = await sb.from('tesoreria_pagos_pendientes')
+      .select('id', { count: 'exact', head: true })
+      .eq('estado', 'pendiente')
+      .lte('fecha_vencimiento', new Date(Date.now() + 7*86400000).toISOString().slice(0,10));
+    const badge = document.getElementById('badge-pendientes');
+    if (badge) {
+      if (count > 0) { badge.textContent = count; badge.style.display = ''; }
+      else badge.style.display = 'none';
+    }
+  } catch (e) {}
+}
+
+function fmtMoneda(n, moneda) {
+  const s = moneda === 'USD' ? 'US$' : '$';
+  return s + Math.round(n).toLocaleString('es-AR');
+}
+
+async function renderPagosPendientes() {
+  const cont = document.getElementById('contenido');
+  cont.innerHTML = '<div class="empty"><div class="spinner"></div></div>';
+  const filtro = _filtroMostrarPagados ? ['pendiente','pagado'] : ['pendiente'];
+  let q = sb.from('tesoreria_pagos_pendientes_view').select('*').in('estado', filtro);
+  if (_filtroCategoria) q = q.eq('categoria', _filtroCategoria);
+  if (_filtroLocal) q = q.eq('local', _filtroLocal);
+  q = q.order('fecha_vencimiento', { ascending: true });
+  const { data, error } = await q;
+  if (error) { cont.innerHTML = `<div class="empty">Error: ${escHtml(error.message)}</div>`; return; }
+  _pagosPendientesCache = data || [];
+  const pendientes = _pagosPendientesCache.filter(p => p.estado === 'pendiente');
+  const totalPos = pendientes.filter(p => +p.importe > 0).reduce((s,p) => s + +p.importe, 0);
+  const totalNeg = pendientes.filter(p => +p.importe < 0).reduce((s,p) => s + +p.importe, 0);
+  const grupos = { vencido:[], hoy:[], esta_semana:[], este_mes:[], futuro:[], pagado:[], cancelado:[] };
+  _pagosPendientesCache.forEach(p => { (grupos[p.estado_urgencia] || grupos.futuro).push(p); });
+
+  cont.innerHTML = `<div style="padding:16px;">
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">
+      <div style="flex:1;min-width:180px;background:white;border-radius:10px;padding:14px;box-shadow:var(--shadow);">
+        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;font-weight:600;">A pagar</div>
+        <div style="font-size:22px;font-weight:800;color:#dc2626;margin-top:4px;">${fmtMoneda(totalPos, 'ARS')}</div>
+      </div>
+      <div style="flex:1;min-width:180px;background:white;border-radius:10px;padding:14px;box-shadow:var(--shadow);">
+        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;font-weight:600;">A cobrar</div>
+        <div style="font-size:22px;font-weight:800;color:#16a34a;margin-top:4px;">${fmtMoneda(Math.abs(totalNeg), 'ARS')}</div>
+      </div>
+      <div style="flex:1;min-width:180px;background:white;border-radius:10px;padding:14px;box-shadow:var(--shadow);">
+        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;font-weight:600;">Neto</div>
+        <div style="font-size:22px;font-weight:800;color:var(--primary-dark);margin-top:4px;">${fmtMoneda(totalPos + totalNeg, 'ARS')}</div>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px;background:white;padding:10px 14px;border-radius:10px;box-shadow:var(--shadow);">
+      <span style="font-weight:600;color:var(--muted);font-size:13px;">Filtrar:</span>
+      <select onchange="_filtroCategoria=this.value;renderPagosPendientes();" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
+        <option value="">Todas las categorías</option>
+        ${Object.entries(CAT_LABELS).map(([k,v]) => `<option value="${k}" ${_filtroCategoria===k?'selected':''}>${v}</option>`).join('')}
+      </select>
+      <select onchange="_filtroLocal=this.value;renderPagosPendientes();" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
+        <option value="">Todos los locales</option>
+        <option value="general" ${_filtroLocal==='general'?'selected':''}>General</option>
+        <option value="alcorta" ${_filtroLocal==='alcorta'?'selected':''}>Alcorta</option>
+        <option value="unicenter" ${_filtroLocal==='unicenter'?'selected':''}>Unicenter</option>
+        <option value="oficina" ${_filtroLocal==='oficina'?'selected':''}>Oficina</option>
+      </select>
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
+        <input type="checkbox" ${_filtroMostrarPagados?'checked':''} onchange="_filtroMostrarPagados=this.checked;renderPagosPendientes();">
+        Mostrar pagados
+      </label>
+      <div style="flex:1;"></div>
+      <button class="btn-primary" style="width:auto;padding:8px 16px;font-size:13px;" onclick="abrirFormNuevoPago()">+ Nuevo pago</button>
+    </div>
+    ${['vencido','hoy','esta_semana','este_mes','futuro','pagado','cancelado'].map(u => {
+      const items = grupos[u] || [];
+      if (!items.length) return '';
+      const cfg = URGENCIA_CFG[u] || { label: u.toUpperCase(), color: '#475569', bg: '#f8fafc' };
+      const subtotal = items.filter(p => p.estado === 'pendiente').reduce((s,p) => s + +p.importe, 0);
+      return `<div style="margin-bottom:14px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:${cfg.bg};border-left:4px solid ${cfg.color};border-radius:6px;margin-bottom:6px;">
+          <div style="font-weight:700;color:${cfg.color};">${cfg.label} <span style="color:var(--muted);font-weight:500;font-size:13px;">(${items.length})</span></div>
+          <div style="font-size:13px;color:${cfg.color};font-weight:600;">${u==='pagado'||u==='cancelado'?'':fmtMoneda(subtotal,'ARS')}</div>
+        </div>
+        <div style="background:white;border-radius:8px;overflow:hidden;box-shadow:var(--shadow);">
+          ${items.map(renderPagoItem).join('')}
+        </div>
+      </div>`;
+    }).join('')}
+    ${_pagosPendientesCache.length === 0 ? `<div class="empty">No hay pagos pendientes. <button class="btn-primary" style="width:auto;padding:8px 14px;font-size:13px;margin-top:10px;" onclick="abrirFormNuevoPago()">+ Crear el primero</button></div>` : ''}
+  </div>`;
+}
+
+function renderPagoItem(p) {
+  const esNegativo = +p.importe < 0;
+  const colorImp = p.estado === 'pagado' ? '#16a34a' : (esNegativo ? '#16a34a' : '#dc2626');
+  const labelImp = esNegativo ? '+' : '−';
+  const fechaCorta = new Date(p.fecha_vencimiento + 'T00:00').toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit'});
+  const cat = CAT_LABELS[p.categoria] || p.categoria;
+  const medio = MEDIO_LABELS[p.medio_pago] || p.medio_pago;
+  const localBadge = p.local && p.local !== 'general'
+    ? `<span style="background:#ede9fe;color:#5b21b6;padding:1px 8px;border-radius:10px;font-size:10px;font-weight:600;">${p.local.toUpperCase()}</span>` : '';
+  const recurrenteBadge = p.recurrente
+    ? `<span style="background:#dcfce7;color:#166534;padding:1px 8px;border-radius:10px;font-size:10px;font-weight:600;" title="Recurrente">🔁 ${p.frecuencia}</span>` : '';
+  const estadoBadge = p.estado === 'pagado'
+    ? `<span style="background:#dcfce7;color:#166534;padding:1px 8px;border-radius:10px;font-size:10px;font-weight:600;">✓ PAGADO</span>`
+    : (p.estado === 'cancelado'
+      ? `<span style="background:#fee2e2;color:#991b1b;padding:1px 8px;border-radius:10px;font-size:10px;font-weight:600;">✗ CANCELADO</span>` : '');
+  const acciones = p.estado === 'pendiente'
+    ? `<button class="btn-secondary" style="font-size:12px;padding:5px 10px;color:#16a34a;border-color:#86efac;" onclick="event.stopPropagation();marcarComoPagado(${p.id})">✓ Pagado</button>
+       <button class="btn-secondary" style="font-size:12px;padding:5px 10px;" onclick="event.stopPropagation();abrirEditarPago(${p.id})">✏️</button>
+       <button class="btn-secondary" style="font-size:12px;padding:5px 10px;color:#dc2626;border-color:#fca5a5;" onclick="event.stopPropagation();cancelarPago(${p.id})">✗</button>`
+    : `<button class="btn-secondary" style="font-size:12px;padding:5px 10px;" onclick="event.stopPropagation();abrirEditarPago(${p.id})">Ver</button>`;
+  return `<div style="display:grid;grid-template-columns:55px 1fr 130px auto;gap:10px;align-items:center;padding:10px 14px;border-bottom:1px solid #f3f4f6;cursor:pointer;" onclick="abrirEditarPago(${p.id})">
+    <div style="font-size:13px;font-weight:700;color:var(--text);text-align:center;line-height:1.2;">${fechaCorta}</div>
+    <div style="min-width:0;">
+      <div style="font-weight:600;font-size:13px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escHtml(p.concepto)}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:2px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+        <span>${cat}</span><span>·</span><span>${medio}</span>${localBadge}${recurrenteBadge}${estadoBadge}
+      </div>
+    </div>
+    <div style="font-weight:700;font-size:15px;color:${colorImp};text-align:right;font-variant-numeric:tabular-nums;">${labelImp}${fmtMoneda(Math.abs(+p.importe), p.moneda)}</div>
+    <div style="display:flex;gap:4px;">${acciones}</div>
+  </div>`;
+}
+
+async function marcarComoPagado(id) {
+  if (!confirm('¿Marcar este pago como realizado?\n\nSi es recurrente, se va a crear automáticamente el del próximo período.')) return;
+  try {
+    const { data, error } = await sb.rpc('marcar_pago_realizado', { p_id: id, p_pagado_por: session.email || 'admin' });
+    if (error) throw error;
+    toast(data?.siguiente_creado_id ? '✓ Pagado · siguiente recurrente creado' : '✓ Pagado');
+    renderPagosPendientes(); refrescarBadgePagosPendientes();
+  } catch (e) { alert('Error: ' + e.message); }
+}
+async function cancelarPago(id) {
+  if (!confirm('¿Cancelar este pago?')) return;
+  try {
+    const { error } = await sb.from('tesoreria_pagos_pendientes').update({ estado: 'cancelado' }).eq('id', id);
+    if (error) throw error;
+    toast('Cancelado'); renderPagosPendientes();
+  } catch (e) { alert('Error: ' + e.message); }
+}
+function abrirFormNuevoPago(precarga) { abrirFormPago(null, precarga); }
+function abrirEditarPago(id) {
+  const p = _pagosPendientesCache.find(x => x.id === id);
+  if (p) abrirFormPago(p, null);
+}
+
+function abrirFormPago(existente, precarga) {
+  document.getElementById('modal-pago')?.remove();
+  const p = existente || precarga || {};
+  const esEdit = !!existente;
+  const wrap = document.createElement('div');
+  wrap.id = 'modal-pago';
+  wrap.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,0.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
+  wrap.onclick = (e) => { if (e.target === wrap) wrap.remove(); };
+  const fechaDefault = p.fecha_vencimiento || new Date(Date.now() + 30*86400000).toISOString().slice(0,10);
+  wrap.innerHTML = `<div style="background:#fff;border-radius:12px;max-width:540px;width:100%;max-height:90vh;overflow:auto;padding:22px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+      <h3 style="margin:0;font-size:18px;">${esEdit ? '✏️ Editar pago' : '+ Nuevo pago pendiente'}</h3>
+      <button onclick="document.getElementById('modal-pago').remove();" style="background:none;border:none;cursor:pointer;font-size:18px;color:#64748b;">✕</button>
+    </div>
+    <div style="display:grid;gap:10px;">
+      <label><div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600;margin-bottom:3px;">Concepto *</div>
+        <input id="f-concepto" type="text" value="${escHtml(p.concepto||'')}" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;box-sizing:border-box;"></label>
+      <label><div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600;margin-bottom:3px;">Destinatario</div>
+        <input id="f-destinatario" type="text" value="${escHtml(p.destinatario||'')}" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;box-sizing:border-box;"></label>
+      <div style="display:grid;grid-template-columns:2fr 1fr;gap:10px;">
+        <label><div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600;margin-bottom:3px;">Importe *</div>
+          <input id="f-importe" type="number" step="0.01" value="${p.importe||''}" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;box-sizing:border-box;"></label>
+        <label><div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600;margin-bottom:3px;">Moneda</div>
+          <select id="f-moneda" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;box-sizing:border-box;">
+            <option value="ARS" ${p.moneda==='ARS'||!p.moneda?'selected':''}>ARS</option>
+            <option value="USD" ${p.moneda==='USD'?'selected':''}>USD</option>
+          </select></label>
+      </div>
+      <label><div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600;margin-bottom:3px;">Fecha vencimiento *</div>
+        <input id="f-fecha" type="date" value="${fechaDefault}" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;box-sizing:border-box;"></label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <label><div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600;margin-bottom:3px;">Categoría *</div>
+          <select id="f-categoria" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;box-sizing:border-box;">
+            ${Object.entries(CAT_LABELS).map(([k,v]) => `<option value="${k}" ${p.categoria===k?'selected':''}>${v}</option>`).join('')}
+          </select></label>
+        <label><div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600;margin-bottom:3px;">Medio de pago *</div>
+          <select id="f-medio" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;box-sizing:border-box;">
+            ${Object.entries(MEDIO_LABELS).map(([k,v]) => `<option value="${k}" ${p.medio_pago===k?'selected':''}>${v}</option>`).join('')}
+          </select></label>
+      </div>
+      <label><div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600;margin-bottom:3px;">Local</div>
+        <select id="f-local" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;box-sizing:border-box;">
+          <option value="general" ${p.local==='general'||!p.local?'selected':''}>General</option>
+          <option value="alcorta" ${p.local==='alcorta'?'selected':''}>Alcorta</option>
+          <option value="unicenter" ${p.local==='unicenter'?'selected':''}>Unicenter</option>
+          <option value="oficina" ${p.local==='oficina'?'selected':''}>Oficina</option>
+        </select></label>
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;background:#f8fafc;padding:10px;border-radius:6px;cursor:pointer;">
+        <input id="f-recurrente" type="checkbox" ${p.recurrente?'checked':''} onchange="document.getElementById('f-frecuencia-wrap').style.display=this.checked?'block':'none';">
+        <span>🔁 Pago recurrente</span>
+      </label>
+      <div id="f-frecuencia-wrap" style="display:${p.recurrente?'block':'none'};">
+        <label><div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600;margin-bottom:3px;">Frecuencia</div>
+          <select id="f-frecuencia" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;box-sizing:border-box;">
+            <option value="mensual" ${p.frecuencia==='mensual'||!p.frecuencia?'selected':''}>Mensual</option>
+            <option value="bimestral" ${p.frecuencia==='bimestral'?'selected':''}>Bimestral</option>
+            <option value="trimestral" ${p.frecuencia==='trimestral'?'selected':''}>Trimestral</option>
+            <option value="semestral" ${p.frecuencia==='semestral'?'selected':''}>Semestral</option>
+            <option value="anual" ${p.frecuencia==='anual'?'selected':''}>Anual</option>
+          </select></label>
+      </div>
+      <label><div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600;margin-bottom:3px;">Notas</div>
+        <textarea id="f-notas" rows="2" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;box-sizing:border-box;font-family:inherit;">${escHtml(p.notas||'')}</textarea></label>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px;">
+      <button class="btn-secondary" onclick="document.getElementById('modal-pago').remove();">Cancelar</button>
+      <button class="btn-primary" style="width:auto;padding:10px 20px;" onclick="guardarPago(${esEdit?p.id:'null'})">${esEdit?'Actualizar':'Crear'}</button>
+    </div>
+  </div>`;
+  document.body.appendChild(wrap);
+}
+
+async function guardarPago(id) {
+  const concepto = document.getElementById('f-concepto').value.trim();
+  const destinatario = document.getElementById('f-destinatario').value.trim() || null;
+  const importe = parseFloat(document.getElementById('f-importe').value);
+  const moneda = document.getElementById('f-moneda').value;
+  const fecha_vencimiento = document.getElementById('f-fecha').value;
+  const categoria = document.getElementById('f-categoria').value;
+  const medio_pago = document.getElementById('f-medio').value;
+  const local = document.getElementById('f-local').value;
+  const recurrente = document.getElementById('f-recurrente').checked;
+  const frecuencia = recurrente ? document.getElementById('f-frecuencia').value : null;
+  const notas = document.getElementById('f-notas').value.trim() || null;
+  if (!concepto) return alert('Falta el concepto');
+  if (importe === null || isNaN(importe)) return alert('Falta el importe');
+  if (!fecha_vencimiento) return alert('Falta la fecha de vencimiento');
+  const payload = { concepto, destinatario, importe, moneda, fecha_vencimiento, categoria, medio_pago, local, recurrente, frecuencia, notas };
+  try {
+    if (id) {
+      const { error } = await sb.from('tesoreria_pagos_pendientes').update(payload).eq('id', id);
+      if (error) throw error;
+      toast('✓ Actualizado');
+    } else {
+      payload.created_by = session.email || 'admin';
+      const { error } = await sb.from('tesoreria_pagos_pendientes').insert(payload);
+      if (error) throw error;
+      toast('✓ Creado');
+    }
+    document.getElementById('modal-pago').remove();
+    renderPagosPendientes(); refrescarBadgePagosPendientes();
+  } catch (e) { alert('Error: ' + e.message); }
+}
+
 
 // ═══════════════════════════════════════════════════════════════════════
 // INIT

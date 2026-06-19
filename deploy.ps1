@@ -1,4 +1,4 @@
-# Deploy de tesoreria-adorno a GitHub Pages
+﻿# Deploy de tesoreria-adorno a GitHub Pages
 # Uso: .\deploy.ps1 "mensaje opcional"
 
 $mensaje = if ($args[0]) { $args[0] } else { "deploy " + (Get-Date -Format "yyyy-MM-dd HH:mm") }

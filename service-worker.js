@@ -1,5 +1,5 @@
 // Service Worker — Tesorería Adorno
-const CACHE_VERSION = 'tesoreria-adorno-v21-mp-saldo-banco-pendiente';
+const CACHE_VERSION = 'tesoreria-adorno-v22-pagos-pendientes';
 const CACHE_ASSETS = ['./', './index.html', './manifest.webmanifest', './favicon.svg'];
 
 self.addEventListener('install', e => {
