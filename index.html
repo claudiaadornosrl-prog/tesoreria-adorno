@@ -1070,7 +1070,7 @@ function renderCargar() {
       <div class="form-row" style="margin-bottom:14px;">
         <label>Tipo</label>
         <div style="display:flex;gap:8px;">
-          <button onclick="setTipoCarga('ingreso')" id="ti-ingreso" class="btn-secondary" style="flex:1;${esGerente?'display:none;':''}">⬆ Ingreso</button>
+          <button onclick="setTipoCarga('ingreso')" id="ti-ingreso" class="btn-secondary" style="flex:1;">⬆ Ingreso</button>
           <button onclick="setTipoCarga('egreso')" id="ti-egreso" class="btn-secondary" style="flex:1;">⬇ Egreso</button>
           ${esGerente ? '' : '<button onclick="setTipoCarga(\'transferencia\')" id="ti-trans" class="btn-secondary" style="flex:1;">🔄 Transferencia</button>'}
         </div>
