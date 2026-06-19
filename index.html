@@ -169,7 +169,7 @@ tbody tr:hover { background: var(--primary-light); }
     <button class="active" data-tab="dashboard" onclick="cambiarTab('dashboard')">📊 Saldos</button>
     <button data-tab="movimientos" onclick="cambiarTab('movimientos')">📋 Movimientos</button>
     <button data-tab="cargar" onclick="cambiarTab('cargar')">➕ Cargar</button>
-    <button data-tab="firma" onclick="cambiarTab('firma')" id="tab-firma">📝 Pendientes firma <span id="badge-firma" style="display:none;background:#dc2626;color:white;border-radius:999px;padding:1px 7px;font-size:11px;margin-left:4px;font-weight:700;"></span></button>
+    <button data-tab="firma" onclick="cambiarTab('firma')" id="tab-firma" style="display:none;">📝 Pendientes firma <span id="badge-firma" style="display:none;background:#dc2626;color:white;border-radius:999px;padding:1px 7px;font-size:11px;margin-left:4px;font-weight:700;"></span></button>
     <button data-tab="pendientes" onclick="cambiarTab('pendientes')" id="tab-pendientes">💸 Pagos a hacer <span id="badge-pendientes" style="display:none;background:#dc2626;color:white;border-radius:999px;padding:1px 7px;font-size:11px;margin-left:4px;font-weight:700;"></span></button>
     <button data-tab="scrapers" onclick="cambiarTab('scrapers')" id="tab-scrapers" style="display:none;">🤖 Scrapers</button>
   </div>
@@ -386,6 +386,53 @@ async function cancelarMovimiento(id) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// Modal post-carga: pide descargar PDF, firmar y mandar por mail
+// ═══════════════════════════════════════════════════════════════════════
+function abrirModalPostCarga(movId) {
+  const overlay = document.createElement('div');
+  overlay.id = 'modal-post-carga';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,0.55);display:flex;align-items:center;justify-content:center;z-index:9999;padding:16px;';
+  overlay.innerHTML = `
+    <div style="background:white;border-radius:14px;max-width:480px;width:100%;padding:24px;box-shadow:0 20px 50px rgba(0,0,0,0.25);">
+      <div style="text-align:center;margin-bottom:14px;">
+        <div style="font-size:42px;line-height:1;">📄</div>
+        <h2 style="margin:10px 0 4px 0;font-size:20px;color:#1e293b;">¡Egreso cargado!</h2>
+        <div style="color:#475569;font-size:13px;">El saldo ya se descontó de la caja.</div>
+      </div>
+      <div style="background:#fef3c7;border-left:4px solid #f59e0b;padding:12px 14px;border-radius:8px;margin:14px 0;">
+        <div style="font-weight:700;color:#92400e;font-size:13px;margin-bottom:6px;">📌 Ahora hay que firmar el recibo</div>
+        <ol style="margin:0;padding-left:18px;color:#78350f;font-size:13px;line-height:1.6;">
+          <li>Descargá e imprimí el PDF</li>
+          <li>Firmalo (vos + quien recibió la plata)</li>
+          <li>Sacale una foto / escaneá</li>
+          <li>Mandalo por mail a <b>claudiaadornosrl@gmail.com</b></li>
+        </ol>
+        <div style="margin-top:8px;font-size:12px;color:#92400e;font-style:italic;">El sistema lee el QR del PDF y lo marca como firmado automáticamente.</div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:16px;">
+        <button class="btn-primary" style="flex:1;padding:12px;font-size:15px;" onclick="generarPDFEgreso(${movId});cerrarModalPostCarga();">
+          📄 Descargar PDF
+        </button>
+        <button class="btn-secondary" onclick="cerrarModalPostCarga();" style="padding:12px 16px;">
+          Después
+        </button>
+      </div>
+      <div style="text-align:center;margin-top:10px;font-size:11px;color:#94a3b8;">
+        Si lo cerrás, podés bajarlo igual desde la tab "Movimientos".
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+}
+
+function cerrarModalPostCarga() {
+  const o = document.getElementById('modal-post-carga');
+  if (o) o.remove();
+  cambiarTab('dashboard');
+  cargar();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // PDF: comprobante de egreso con QR
 // ═══════════════════════════════════════════════════════════════════════
 async function generarPDFEgreso(movId) {
@@ -488,12 +535,16 @@ async function generarPDFEgreso(movId) {
   doc.text('Firma autorizante', margen + 37, y + 18, { align: 'center' });
   doc.text('Firma receptora del dinero', W - margen - 37, y + 18, { align: 'center' });
 
-  // QR con código MOV-XXXXX
+  // QR con token único — el sync IMAP lee este token del PDF firmado
+  // y matchea con tesoreria_movimientos.qr_token para marcar firmado_at
   try {
     if (typeof qrcode === 'function') {
-      const codigoQR = m.codigo_seguimiento || ('MOV-' + String(m.id).padStart(5, '0'));
+      // El token va en el QR (UUID inmutable, único por mov).
+      // El código de seguimiento humano-legible va al lado del QR.
+      const tokenQR = m.qr_token || m.codigo_seguimiento || ('MOV-' + String(m.id).padStart(5, '0'));
+      const codigoHumano = m.codigo_seguimiento || ('MOV-' + String(m.id).padStart(5, '0'));
       const qr = qrcode(0, 'M');
-      qr.addData(codigoQR);
+      qr.addData('TESORERIA:' + tokenQR);
       qr.make();
       const qrDataUrl = qr.createDataURL(4, 0);
       doc.addImage(qrDataUrl, 'PNG', margen, H - 50, 22, 22);
@@ -504,7 +555,7 @@ async function generarPDFEgreso(movId) {
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(12);
       doc.setTextColor(180, 83, 9);
-      doc.text(codigoQR, margen + 26, H - 38);
+      doc.text(codigoHumano, margen + 26, H - 38);
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(8);
       doc.setTextColor(120, 120, 120);
@@ -512,7 +563,7 @@ async function generarPDFEgreso(movId) {
       doc.setFont('helvetica', 'bold');
       doc.text('claudiaadornosrl@gmail.com', margen + 26, H - 28);
       doc.setFont('helvetica', 'normal');
-      doc.text('Asunto del mail: "TESORERIA ' + codigoQR + '"', margen + 26, H - 24);
+      doc.text('El sistema detecta el QR y lo marca como firmado automáticamente.', margen + 26, H - 24);
     }
   } catch (e) { console.warn('qr:', e); }
 
@@ -993,8 +1044,15 @@ function renderListaMovimientos(movs, tenencias = []) {
               manual: 'manual', ventas_auto: 'ventas', scraper_galicia: 'Galicia', scraper_mp: 'MP', scraper_ppi: 'PPI',
               transferencia: 'transferencia', liquidacion: 'liquidación'
             }[m.origen] || m.origen;
-            const firma = m.requiere_firma && !m.firmado_at
-              ? `<span class="chip chip-firma-pendiente" title="Esperando firma">📝 firma pendiente</span>` : '';
+            let firma = '';
+            if (m.requiere_firma) {
+              if (m.firmado_at) {
+                firma = `<span class="chip" style="background:#d1fae5;color:#065f46;font-size:11px;font-weight:600;" title="Firmado el ${new Date(m.firmado_at).toLocaleDateString('es-AR')}">✓ Firmado</span>`;
+              } else {
+                firma = `<span class="chip" style="background:#fef3c7;color:#92400e;font-size:11px;font-weight:600;" title="Pendiente de firma — descargá y mandá por mail">⏳ Sin firmar</span>
+                  <button class="btn-icon" onclick="generarPDFEgreso(${m.id})" title="Descargar recibo PDF para firmar" style="background:none;border:none;cursor:pointer;font-size:14px;padding:2px 4px;margin-left:2px;">📄</button>`;
+              }
+            }
             const imp = +m.importe;
             const debito  = imp < 0 ? `<span class="importe-egreso">- ${fmt$(Math.abs(imp), m.cuenta_moneda)}</span>` : '';
             const credito = imp > 0 ? `<span class="importe-ingreso">+ ${fmt$(imp, m.cuenta_moneda)}</span>` : '';
@@ -1387,8 +1445,15 @@ async function guardarMovimiento() {
       if (session.rol === 'gerente' && !session.verTodo && _tipoCarga === 'egreso') {
         data.requiere_firma = true;
       }
-      const { error } = await sb.from('tesoreria_movimientos').insert(data);
+      const { data: insMov, error } = await sb.from('tesoreria_movimientos').insert(data).select().single();
       if (error) throw error;
+      // Si requiere firma: el saldo YA fue descontado. Mostramos modal
+      // con botón para descargar el PDF (debe firmar y mandar por mail).
+      if (data.requiere_firma && insMov) {
+        toast('✓ Movimiento cargado · descargá el recibo');
+        abrirModalPostCarga(insMov.id);
+        return;
+      }
     }
     toast('✓ Movimiento cargado');
     cambiarTab('dashboard');
