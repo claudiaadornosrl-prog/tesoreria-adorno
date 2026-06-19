@@ -1598,7 +1598,7 @@ const URGENCIA_CFG = {
   futuro:      { label: '⏳ Futuro',      color: '#475569', bg: '#f8fafc' },
 };
 let _pagosPendientesCache = [];
-let _filtroCategoria = '', _filtroLocal = '', _filtroMostrarPagados = false;
+let _filtroCategoria = '', _filtroLocal = '', _filtroMostrarPagados = false, _filtroTexto = '';
 
 async function refrescarBadgePagosPendientes() {
   try {
@@ -1630,11 +1630,27 @@ async function renderPagosPendientes() {
   const { data, error } = await q;
   if (error) { cont.innerHTML = `<div class="empty">Error: ${escHtml(error.message)}</div>`; return; }
   _pagosPendientesCache = data || [];
-  const pendientes = _pagosPendientesCache.filter(p => p.estado === 'pendiente');
+  // Aplicar filtro de texto in-memory
+  let cacheFiltrado = _pagosPendientesCache;
+  if (_filtroTexto && _filtroTexto.trim().length >= 2) {
+    const t = _filtroTexto.trim().toLowerCase();
+    const tnum = t.replace(/[.,$\s]/g, '');
+    cacheFiltrado = _pagosPendientesCache.filter(p => {
+      const importeStr = String(p.importe || '').replace(/[.,]/g,'');
+      return (p.concepto && p.concepto.toLowerCase().includes(t))
+          || (p.destinatario && p.destinatario.toLowerCase().includes(t))
+          || (p.notas && p.notas.toLowerCase().includes(t))
+          || (p.categoria && p.categoria.toLowerCase().includes(t))
+          || (p.medio_pago && p.medio_pago.toLowerCase().includes(t))
+          || (p.local && p.local.toLowerCase().includes(t))
+          || (importeStr.includes(tnum));
+    });
+  }
+  const pendientes = cacheFiltrado.filter(p => p.estado === 'pendiente');
   const totalPos = pendientes.filter(p => +p.importe > 0).reduce((s,p) => s + +p.importe, 0);
   const totalNeg = pendientes.filter(p => +p.importe < 0).reduce((s,p) => s + +p.importe, 0);
   const grupos = { vencido:[], hoy:[], esta_semana:[], este_mes:[], futuro:[], pagado:[], cancelado:[] };
-  _pagosPendientesCache.forEach(p => { (grupos[p.estado_urgencia] || grupos.futuro).push(p); });
+  cacheFiltrado.forEach(p => { (grupos[p.estado_urgencia] || grupos.futuro).push(p); });
 
   cont.innerHTML = `<div style="padding:16px;">
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">
@@ -1652,7 +1668,13 @@ async function renderPagosPendientes() {
       </div>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px;background:white;padding:10px 14px;border-radius:10px;box-shadow:var(--shadow);">
-      <span style="font-weight:600;color:var(--muted);font-size:13px;">Filtrar:</span>
+      <div style="position:relative;flex:1;min-width:220px;">
+        <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#94a3b8;font-size:14px;">🔍</span>
+        <input id="pp-buscador" type="search" placeholder="Buscar concepto, proveedor, importe…" value="${escHtml(_filtroTexto||'')}"
+               oninput="_filtroTexto=this.value;clearTimeout(window._ppDebounce);window._ppDebounce=setTimeout(()=>renderPagosPendientes(),250);"
+               style="width:100%;padding:7px 10px 7px 32px;border:1px solid var(--border);border-radius:6px;font-size:13px;box-sizing:border-box;">
+        ${_filtroTexto ? `<button onclick="_filtroTexto='';renderPagosPendientes();" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);background:#f1f5f9;color:#475569;border:none;border-radius:4px;padding:3px 8px;font-size:11px;cursor:pointer;" title="Limpiar">✕</button>` : ''}
+      </div>
       <select onchange="_filtroCategoria=this.value;renderPagosPendientes();" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
         <option value="">Todas las categorías</option>
         ${Object.entries(CAT_LABELS).map(([k,v]) => `<option value="${k}" ${_filtroCategoria===k?'selected':''}>${v}</option>`).join('')}
