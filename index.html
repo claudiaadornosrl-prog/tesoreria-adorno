@@ -1112,8 +1112,13 @@ function renderCargar() {
   const cont = document.getElementById('contenido');
   // "Gerente restringido" = gerente de un local físico (no oficina ni admin)
   const esGerente = session.rol === 'gerente' && !session.verTodo;
-  // Para gerente: pre-seleccionar la (única) caja que ve
-  const cajaGerente = esGerente ? _cuentas.find(c => c.tipo === 'caja') : null;
+  // Para gerente: pre-seleccionar la caja DE SU LOCAL (no la primera del array).
+  // Bug histórico: sin el filtro c.local === session.localGerencia, agarraba
+  // "Caja Alcorta" para TODOS los gerentes por orden alfabético, y la policy
+  // tm_gerente_egreso rechazaba el INSERT porque el local no coincidía.
+  const cajaGerente = esGerente
+    ? _cuentas.find(c => c.tipo === 'caja' && c.local === session.localGerencia)
+    : null;
   const cuentasOpt = _cuentas.map(c => {
     const sel = cajaGerente && c.id === cajaGerente.id ? 'selected' : '';
     return `<option value="${c.id}" ${sel}>${escHtml(c.nombre)} (${c.moneda})</option>`;
