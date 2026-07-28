@@ -1482,7 +1482,7 @@ async function renderScrapers() {
     <div class="card" style="background:#fef3c7;border-left:4px solid #f59e0b;padding:12px;">
       <div style="font-size:13px;font-weight:600;color:#92400e;">🤖 Scrapers — credenciales para bajar info bancaria automáticamente</div>
       <div style="font-size:12px;color:#a16207;margin-top:4px;">
-        Los scrapers corren desde una PC tuya con Python + Playwright. Acá podés editar las credenciales (cifradas) y ver el último estado.
+        Corren solos en el servidor (VPS), 24/7. Acá podés editar las credenciales (cifradas), ver el último estado y forzar una corrida — tarda hasta 5 minutos en arrancar.
       </div>
     </div>
     ${(scrapers||[]).map(s => `
