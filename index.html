@@ -57,11 +57,22 @@ body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Ro
 .btn-secondary { background: white; color: var(--text); border: 1px solid var(--border); padding: 8px 12px; border-radius: 6px; font-size: 13px; cursor: pointer; }
 .btn-secondary:hover { background: #f3f4f6; }
 
-/* Nav tabs */
-.tabs { background: white; border-bottom: 1px solid var(--border); padding: 0 16px; display: flex; gap: 4px; overflow-x: auto; }
-.tabs button { background: transparent; border: none; padding: 12px 14px; font-size: 13px; font-weight: 600; color: var(--muted); cursor: pointer; border-bottom: 3px solid transparent; white-space: nowrap; }
+/* Nav tabs (unificadas dentro del header) */
+.tabs { display: flex; gap: 2px; overflow-x: auto; flex: 1; margin: 0 10px; }
+.tabs button { background: transparent; border: none; padding: 10px 12px; font-size: 13px; font-weight: 600; color: var(--muted); cursor: pointer; border-bottom: 3px solid transparent; white-space: nowrap; }
 .tabs button.active { color: var(--primary-dark); border-bottom-color: var(--primary); }
 .tabs button:hover { background: #fafafa; }
+.kebab-tabs-btn { display: none; }
+@media (max-width: 900px) {
+  .kebab-tabs-btn { display: inline-block; }
+  .tabs { display: none; position: absolute; top: calc(100% + 4px); right: 8px; left: auto;
+    background: white; border: 1px solid var(--border); border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.14); flex-direction: column; padding: 6px;
+    z-index: 200; margin: 0; min-width: 190px; overflow: visible; }
+  .tabs.open { display: flex; }
+  .tabs button { text-align: left; border-bottom: none; border-left: 3px solid transparent; border-radius: 6px; padding: 11px 12px; }
+  .tabs button.active { border-left-color: var(--primary); background: #fff7ed; }
+}
 
 main { padding: 16px; max-width: 1400px; margin: 0 auto; }
 
@@ -158,20 +169,20 @@ tbody tr:hover { background: var(--primary-light); }
       <span class="header-title">💰 Tesorería</span>
       <span class="header-sub" id="hdr-sub"></span>
     </div>
+    <div class="tabs" id="tabs">
+      <button class="active" data-tab="dashboard" onclick="cambiarTab('dashboard')">📊 Saldos</button>
+      <button data-tab="movimientos" onclick="cambiarTab('movimientos')">📋 Movimientos</button>
+      <button data-tab="cargar" onclick="cambiarTab('cargar')">🧾 Recibos</button>
+      <button data-tab="firma" onclick="cambiarTab('firma')" id="tab-firma" style="display:none;">📝 Pendientes firma <span id="badge-firma" style="display:none;background:#dc2626;color:white;border-radius:999px;padding:1px 7px;font-size:11px;margin-left:4px;font-weight:700;"></span></button>
+      <button data-tab="pendientes" onclick="cambiarTab('pendientes')" id="tab-pendientes">💸 Pendientes <span id="badge-pendientes" style="display:none;background:#dc2626;color:white;border-radius:999px;padding:1px 7px;font-size:11px;margin-left:4px;font-weight:700;"></span></button>
+      <button data-tab="scrapers" onclick="cambiarTab('scrapers')" id="tab-scrapers" style="display:none;">🤖 Bots</button>
+    </div>
     <div class="header-right">
+      <button class="btn-icon kebab-tabs-btn" onclick="toggleTabsMenu(event)" title="Menú" aria-label="Menú">☰</button>
       <button class="btn-icon" id="btn-notifs" onclick="toggleNotificaciones()" title="Activar notificaciones">🔕</button>
       <button class="btn-icon" id="refresh-btn" onclick="cargar()" title="Actualizar">↻</button>
       <button class="btn-secondary" onclick="logout()">Salir</button>
     </div>
-  </div>
-
-  <div class="tabs" id="tabs">
-    <button class="active" data-tab="dashboard" onclick="cambiarTab('dashboard')">📊 Saldos</button>
-    <button data-tab="movimientos" onclick="cambiarTab('movimientos')">📋 Movimientos</button>
-    <button data-tab="cargar" onclick="cambiarTab('cargar')">➕ Cargar</button>
-    <button data-tab="firma" onclick="cambiarTab('firma')" id="tab-firma" style="display:none;">📝 Pendientes firma <span id="badge-firma" style="display:none;background:#dc2626;color:white;border-radius:999px;padding:1px 7px;font-size:11px;margin-left:4px;font-weight:700;"></span></button>
-    <button data-tab="pendientes" onclick="cambiarTab('pendientes')" id="tab-pendientes">💸 Pagos a hacer <span id="badge-pendientes" style="display:none;background:#dc2626;color:white;border-radius:999px;padding:1px 7px;font-size:11px;margin-left:4px;font-weight:700;"></span></button>
-    <button data-tab="scrapers" onclick="cambiarTab('scrapers')" id="tab-scrapers" style="display:none;">🤖 Scrapers</button>
   </div>
 
   <main id="contenido"><div class="empty"><div class="spinner"></div></div></main>
@@ -306,7 +317,16 @@ async function cargar() {
   }
 }
 
+function toggleTabsMenu(ev) {
+  ev.stopPropagation();
+  document.getElementById('tabs').classList.toggle('open');
+}
+document.addEventListener('click', () => {
+  document.getElementById('tabs')?.classList.remove('open');
+});
+
 function cambiarTab(tab) {
+  document.getElementById('tabs').classList.remove('open');
   currentTab = tab;
   document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
   renderTab(tab);
