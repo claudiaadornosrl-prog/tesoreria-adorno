@@ -287,9 +287,19 @@ function enterApp() {
     session.localGerencia === 'oficina' ? 'Oficina (admin)' :
     'Encargada · ' + (session.localGerencia || '')
   );
-  // Scrapers solo admin real (las credenciales son sensibles)
-  if (session.rol === 'admin') {
+  // ── Visibilidad de tabs por rol ──
+  // "Oficina" = admin, gerente de oficina, o Marisa/Analía (mismo par de
+  // emails que tesoreria_es_admin_oficina() en la DB — mantener sincronizado).
+  const ADMIN_OFICINA_EMAILS = ['marisaisabel07@yahoo.com.ar', 'rivera.analia.leon@gmail.com'];
+  session.esOficina = session.verTodo ||
+    ADMIN_OFICINA_EMAILS.includes((session.email || '').toLowerCase());
+  if (session.esOficina) {
+    // Oficina ve Pendientes y Bots
     document.getElementById('tab-scrapers').style.display = '';
+  } else {
+    // Locales (encargadas, cajeras, usuario genérico): solo
+    // Saldos + Movimientos + Recibos.
+    document.getElementById('tab-pendientes').style.display = 'none';
   }
   cargar();
   actualizarBtnNotifs();
