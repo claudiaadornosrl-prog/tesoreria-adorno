@@ -172,7 +172,7 @@ tbody tr:hover { background: var(--primary-light); }
     <div class="tabs" id="tabs">
       <button class="active" data-tab="dashboard" onclick="cambiarTab('dashboard')">📊 Saldos</button>
       <button data-tab="movimientos" onclick="cambiarTab('movimientos')">📋 Movimientos</button>
-      <button data-tab="cargar" onclick="cambiarTab('cargar')">🧾 Recibos</button>
+      <button data-tab="cargar" onclick="cambiarTab('cargar')" id="tab-cargar">🧾 Recibos</button>
       <button data-tab="firma" onclick="cambiarTab('firma')" id="tab-firma" style="display:none;">📝 Pendientes firma <span id="badge-firma" style="display:none;background:#dc2626;color:white;border-radius:999px;padding:1px 7px;font-size:11px;margin-left:4px;font-weight:700;"></span></button>
       <button data-tab="pendientes" onclick="cambiarTab('pendientes')" id="tab-pendientes">💸 Pendientes <span id="badge-pendientes" style="display:none;background:#dc2626;color:white;border-radius:999px;padding:1px 7px;font-size:11px;margin-left:4px;font-weight:700;"></span></button>
       <button data-tab="scrapers" onclick="cambiarTab('scrapers')" id="tab-scrapers" style="display:none;">🤖 Bots</button>
@@ -297,9 +297,13 @@ function enterApp() {
     // Oficina ve Pendientes y Bots
     document.getElementById('tab-scrapers').style.display = '';
   } else {
-    // Locales (encargadas, cajeras, usuario genérico): solo
-    // Saldos + Movimientos + Recibos.
+    // Locales: solo Saldos + Movimientos (+ Recibos según quién sea).
     document.getElementById('tab-pendientes').style.display = 'none';
+    // El usuario GENÉRICO del local (gerente sin empleada asociada, ej:
+    // alcorta@/unicenter@) NO emite recibos: solo encargadas y cajeras.
+    if (session.rol === 'gerente' && !session.empleado_id) {
+      document.getElementById('tab-cargar').style.display = 'none';
+    }
   }
   cargar();
   actualizarBtnNotifs();
@@ -1141,13 +1145,15 @@ function renderListaMovimientos(movs, tenencias = []) {
 function renderCargar() {
   const cont = document.getElementById('contenido');
   // "Gerente restringido" = gerente de un local físico (no oficina ni admin)
-  const esGerente = session.rol === 'gerente' && !session.verTodo;
+  // "Gerente restringido" = cualquiera de local (encargada o cajera), no Oficina
+  const esGerente = !session.esOficina;
   // Para gerente: pre-seleccionar la caja DE SU LOCAL (no la primera del array).
   // Bug histórico: sin el filtro c.local === session.localGerencia, agarraba
   // "Caja Alcorta" para TODOS los gerentes por orden alfabético, y la policy
   // tm_gerente_egreso rechazaba el INSERT porque el local no coincidía.
   const cajaGerente = esGerente
-    ? _cuentas.find(c => c.tipo === 'caja' && c.local === session.localGerencia)
+    ? (_cuentas.find(c => c.tipo === 'caja' && c.local === session.localGerencia)
+       || _cuentas.find(c => c.tipo === 'caja'))  // cajera: su única caja visible
     : null;
   const cuentasOpt = _cuentas.map(c => {
     const sel = cajaGerente && c.id === cajaGerente.id ? 'selected' : '';
@@ -1477,7 +1483,7 @@ async function guardarMovimiento() {
       };
       // Si es egreso de gerente de local físico: requiere firma
       // (admin y encargada de oficina cargan sin firma)
-      if (session.rol === 'gerente' && !session.verTodo && _tipoCarga === 'egreso') {
+      if (!session.esOficina && _tipoCarga === 'egreso') {
         data.requiere_firma = true;
       }
       const { data: insMov, error } = await sb.from('tesoreria_movimientos').insert(data).select().single();
