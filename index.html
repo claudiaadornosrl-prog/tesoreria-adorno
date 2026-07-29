@@ -294,8 +294,10 @@ function enterApp() {
   session.esOficina = session.verTodo ||
     ADMIN_OFICINA_EMAILS.includes((session.email || '').toLowerCase());
   if (session.esOficina) {
-    // Oficina ve Pendientes y Bots
+    // Oficina ve Pendientes y Bots (display explícito, a prueba de caches viejas)
+    document.getElementById('tab-pendientes').style.display = '';
     document.getElementById('tab-scrapers').style.display = '';
+    document.getElementById('tab-cargar').style.display = '';
   } else {
     // Locales: solo Saldos + Movimientos (+ Recibos según quién sea).
     document.getElementById('tab-pendientes').style.display = 'none';
@@ -552,7 +554,7 @@ async function generarPDFEgreso(movId) {
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(11);
   doc.setTextColor(30, 41, 59);
-  const cuerpo = `Por la presente dejo constancia de la salida de $${Math.round(Math.abs(m.importe)).toLocaleString('es-AR')} de la caja "${m.cuenta_nombre}" por el concepto de "${m.categoria_nombre || 'movimiento manual'}". El movimiento queda firme una vez que devuelva este comprobante firmado.`;
+  const cuerpo = `Por la presente dejo constancia de la salida de $${Math.round(Math.abs(m.importe)).toLocaleString('es-AR')} de la caja "${m.cuenta_nombre}" por el concepto de "${m.categoria_nombre || 'movimiento manual'}".`;
   const lineasCuerpo = doc.splitTextToSize(cuerpo, W - 2*margen);
   doc.text(lineasCuerpo, margen, y, { lineHeightFactor: 1.6 });
 
