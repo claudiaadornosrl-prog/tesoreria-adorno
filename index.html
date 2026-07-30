@@ -708,6 +708,13 @@ function renderDashboard() {
                 <div class="cuenta-saldo ${Number(c.saldo) < 0 ? 'negativo' : ''}">${fmt$(c.saldo, c.moneda)}</div>
                 <div class="cuenta-moneda">${c.moneda}</div>
               </div>
+              ${!c._virtual ? `
+                <button onclick="event.stopPropagation();setCuentaDefaultDesdeSaldos(${c.id})"
+                  title="${localStorage.getItem(LS_CTA_DEFAULT) == c.id ? 'Quitar como caja predeterminada' : 'Abrir Movimientos siempre en esta caja (este dispositivo)'}"
+                  style="position:absolute;top:8px;right:${session.verTodo ? '44px' : '8px'};background:transparent;border:1px solid var(--border);border-radius:6px;padding:3px 7px;font-size:11px;cursor:pointer;">
+                  ${localStorage.getItem(LS_CTA_DEFAULT) == c.id ? '⭐' : '☆'}
+                </button>
+              ` : ''}
               ${(!c._virtual && session.verTodo) ? `
                 <button onclick="event.stopPropagation();abrirActualizarSaldo(${c.id})"
                   title="Actualizar saldo (ancla)"
@@ -759,6 +766,11 @@ function verInversionesDe(grupo, moneda) {
                 <div class="cuenta-saldo ${Number(c.saldo) < 0 ? 'negativo' : ''}">${fmt$(c.saldo, c.moneda)}</div>
                 <div class="cuenta-moneda">${c.moneda}</div>
               </div>
+              <button onclick="event.stopPropagation();setCuentaDefaultDesdeSaldos(${c.id})"
+                title="${localStorage.getItem(LS_CTA_DEFAULT) == c.id ? 'Quitar como caja predeterminada' : 'Abrir Movimientos siempre en esta caja (este dispositivo)'}"
+                style="position:absolute;top:8px;right:${session.verTodo ? '44px' : '8px'};background:transparent;border:1px solid var(--border);border-radius:6px;padding:3px 7px;font-size:11px;cursor:pointer;">
+                ${localStorage.getItem(LS_CTA_DEFAULT) == c.id ? '⭐' : '☆'}
+              </button>
               ${session.verTodo ? `
                 <button onclick="event.stopPropagation();abrirActualizarSaldo(${c.id})"
                   title="Actualizar saldo (ancla)"
@@ -777,6 +789,21 @@ function verInversionesDe(grupo, moneda) {
 function verMovimientosCuenta(cuentaId) {
   _movFiltroCuenta = cuentaId;
   cambiarTab('movimientos');
+}
+
+function setCuentaDefaultDesdeSaldos(cuentaId) {
+  const actual = localStorage.getItem(LS_CTA_DEFAULT);
+  const cta = _cuentas.find(c => c.id === cuentaId);
+  if (actual == cuentaId) {
+    localStorage.removeItem(LS_CTA_DEFAULT);
+    if (_movFiltroCuenta == cuentaId) _movFiltroCuenta = null;
+    toast('Ya no hay caja predeterminada');
+  } else {
+    localStorage.setItem(LS_CTA_DEFAULT, String(cuentaId));
+    _movFiltroCuenta = String(cuentaId);
+    toast(`⭐ ${cta ? cta.nombre : 'Caja'} quedó como predeterminada en este dispositivo`);
+  }
+  renderSaldos();
 }
 
 // ─── Actualizar saldo ancla manual ────────────────────────────────
