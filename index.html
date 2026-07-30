@@ -310,11 +310,16 @@ function enterApp() {
     document.getElementById('tab-cargar').style.display = '';
   } else {
     // Locales: solo Saldos + Movimientos (+ Recibos según quién sea).
+    // TODO explícito: si antes entró un admin en este mismo navegador, los
+    // tabs quedaban prendidos de la sesión anterior (bug 30-jul).
     document.getElementById('tab-pendientes').style.display = 'none';
+    document.getElementById('tab-scrapers').style.display = 'none';
     // El usuario GENÉRICO del local (gerente sin empleada asociada, ej:
     // alcorta@/unicenter@) NO emite recibos: solo encargadas y cajeras.
     if (session.rol === 'gerente' && !session.empleado_id) {
       document.getElementById('tab-cargar').style.display = 'none';
+    } else {
+      document.getElementById('tab-cargar').style.display = '';
     }
   }
   cargar();
