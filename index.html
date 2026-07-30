@@ -948,6 +948,9 @@ async function renderMovimientos() {
       .select('*')
       .gte('fecha', _movFiltroDesde).lte('fecha', _movFiltroHasta)
       .order('fecha', { ascending: false })
+      // orden_banco: posición dentro del día según el banco (Galicia reordena
+      // los movs a posteriori, ej. echeqs — así el saldo fila x fila cierra).
+      .order('orden_banco', { ascending: false, nullsFirst: false })
       .order('id', { ascending: false })
       .limit(500);
     if (_movFiltroCuenta) q = q.eq('cuenta_id', _movFiltroCuenta);
