@@ -1331,7 +1331,7 @@ function setTipoCarga(tipo) {
   const rowResp = document.getElementById('row-respaldo');
   if (rowResp) {
     rowResp.style.display = tipo === 'egreso' ? '' : 'none';
-    if (tipo === 'egreso') setRespaldo(session.esOficina ? 'factura' : 'recibo');
+    if (tipo === 'egreso') setRespaldo('recibo');   // default recibo para todos; factura se elige a mano
     else { _respaldoCarga = 'recibo'; const rf = document.getElementById('row-factura'); if (rf) rf.style.display = 'none'; }
   }
   // Llenar categorías según tipo
