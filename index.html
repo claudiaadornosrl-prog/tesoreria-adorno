@@ -904,9 +904,25 @@ async function guardarNotaMov(movId, texto) {
 // ═══════════════════════════════════════════════════════════════════════
 // MOVIMIENTOS
 // ═══════════════════════════════════════════════════════════════════════
-let _movFiltroCuenta = null;
+// Caja predeterminada: se guarda POR DISPOSITIVO (localStorage), así cada
+// puesto abre en la caja que más usa (ej: Oficina → Galicia CA Pesos).
+const LS_CTA_DEFAULT = 'tesoreria_cuenta_default';
+let _movFiltroCuenta = localStorage.getItem(LS_CTA_DEFAULT) || null;
 let _movFiltroDesde = null;
 let _movFiltroHasta = null;
+
+function toggleCuentaDefault() {
+  const actual = localStorage.getItem(LS_CTA_DEFAULT);
+  if (_movFiltroCuenta && actual != _movFiltroCuenta) {
+    localStorage.setItem(LS_CTA_DEFAULT, _movFiltroCuenta);
+    const cta = _cuentas.find(c => c.id == _movFiltroCuenta);
+    toast(`⭐ ${cta ? cta.nombre : 'Esta caja'} quedó como predeterminada en este dispositivo`);
+  } else {
+    localStorage.removeItem(LS_CTA_DEFAULT);
+    toast('Ya no hay caja predeterminada — la app abre en "Todas"');
+  }
+  renderMovimientos();
+}
 
 async function renderMovimientos() {
   const cont = document.getElementById('contenido');
@@ -917,6 +933,12 @@ async function renderMovimientos() {
   }
   if (!_movFiltroHasta) _movFiltroHasta = hoyISO();
 
+  // Si la cuenta guardada ya no existe o el usuario no la ve, ignorarla
+  if (_movFiltroCuenta && !_cuentas.some(c => c.id == _movFiltroCuenta)) {
+    _movFiltroCuenta = null;
+    localStorage.removeItem(LS_CTA_DEFAULT);
+  }
+  const esDefault = _movFiltroCuenta && localStorage.getItem(LS_CTA_DEFAULT) == _movFiltroCuenta;
   const cuentasOpt = _cuentas.map(c => `<option value="${c.id}" ${_movFiltroCuenta==c.id?'selected':''}>${escHtml(c.nombre)}</option>`).join('');
 
   cont.innerHTML = `
@@ -925,6 +947,10 @@ async function renderMovimientos() {
       <select id="mov-cuenta" onchange="_movFiltroCuenta=this.value||null; renderMovimientos();">
         <option value="">Todas</option>${cuentasOpt}
       </select>
+      <button onclick="toggleCuentaDefault()" title="${esDefault ? 'Quitar como predeterminada' : 'Abrir siempre en esta caja (en este dispositivo)'}"
+              style="background:none;border:1px solid var(--border);border-radius:8px;padding:6px 9px;cursor:pointer;font-size:15px;${_movFiltroCuenta ? '' : 'opacity:0.35;pointer-events:none;'}">
+        ${esDefault ? '⭐' : '☆'}
+      </button>
       <label style="font-size:12px;color:var(--muted);">Desde:</label>
       <input type="date" id="mov-desde" value="${_movFiltroDesde}" onchange="_movFiltroDesde=this.value; renderMovimientos();">
       <label style="font-size:12px;color:var(--muted);">Hasta:</label>
