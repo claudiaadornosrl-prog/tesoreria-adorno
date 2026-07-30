@@ -1010,7 +1010,8 @@ async function renderMovimientos() {
     if (_movFiltroCuenta) q = q.eq('cuenta_id', _movFiltroCuenta);
     const { data, error } = await q;
     if (error) throw error;
-    renderListaMovimientos(data || [], tenencias);
+    _movsCache = data || [];
+    renderListaMovimientos(_movsCache, tenencias);
   } catch (e) {
     document.getElementById('mov-lista').innerHTML = `<div class="empty"><div class="icon">⚠️</div>Error: ${escHtml(e.message)}</div>`;
   }
@@ -1088,6 +1089,76 @@ function renderTablaTenencias(tenencias) {
   return html;
 }
 
+let _movsCache = [];
+
+// ═══ Editar / borrar movimiento (solo admin) ═══
+function abrirEditarMov(id) {
+  const m = _movsCache.find(x => x.id === id);
+  if (!m) return;
+  const cats = _categorias.map(c =>
+    `<option value="${c.id}" ${m.categoria_id === c.id ? 'selected' : ''}>${escHtml(c.nombre)}</option>`).join('');
+  const bg = document.createElement('div');
+  bg.id = 'editmov-bg';
+  bg.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:90;display:flex;align-items:center;justify-content:center;padding:16px;';
+  bg.innerHTML = `
+    <div style="background:white;border-radius:14px;padding:20px;width:100%;max-width:460px;" onclick="event.stopPropagation();">
+      <h3 style="margin:0 0 4px;">✏️ Editar movimiento #${m.id}</h3>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">${escHtml(m.cuenta_nombre || '')} · ${escHtml(m.origen || '')}</div>
+      <div class="form-row"><label>Fecha</label><input type="date" id="em-fecha" value="${m.fecha}"></div>
+      <div class="form-row"><label>Importe (negativo = egreso)</label><input type="number" id="em-importe" step="any" value="${m.importe}"></div>
+      <div class="form-row"><label>Categoría</label><select id="em-categoria"><option value="">— Sin categoría —</option>${cats}</select></div>
+      <div class="form-row"><label>Descripción</label><textarea id="em-desc" style="min-height:60px;">${escHtml(m.descripcion || '')}</textarea></div>
+      <div style="font-size:11px;color:var(--muted);margin:8px 0 12px;">
+        ⚠ Cambiar el importe altera el saldo de la caja. Los movimientos del banco (scraper) se van a re-sincronizar en la próxima pasada si los editás.
+      </div>
+      <div class="form-actions">
+        <button class="btn-secondary" onclick="document.getElementById('editmov-bg').remove()">Cancelar</button>
+        <button class="btn-primary" style="width:auto;padding:9px 20px;" onclick="guardarEditMov(${m.id})">💾 Guardar</button>
+      </div>
+    </div>`;
+  bg.onclick = () => bg.remove();
+  document.body.appendChild(bg);
+}
+
+async function guardarEditMov(id) {
+  try {
+    const patch = {
+      fecha: document.getElementById('em-fecha').value,
+      importe: parseFloat(document.getElementById('em-importe').value),
+      categoria_id: parseInt(document.getElementById('em-categoria').value) || null,
+      descripcion: document.getElementById('em-desc').value.trim() || null,
+    };
+    if (!patch.fecha || isNaN(patch.importe) || patch.importe === 0) throw new Error('Fecha e importe válidos son obligatorios');
+    const { error } = await sb.from('tesoreria_movimientos').update(patch).eq('id', id);
+    if (error) throw error;
+    document.getElementById('editmov-bg')?.remove();
+    toast('✓ Movimiento actualizado');
+    renderMovimientos();
+  } catch (e) { toast('Error: ' + e.message, true); }
+}
+
+async function borrarMov(id) {
+  const m = _movsCache.find(x => x.id === id);
+  if (!m) return;
+  const desc = (m.descripcion || '').slice(0, 60);
+  if (!confirm(`¿BORRAR este movimiento?\n\n#${m.id} · ${m.fecha} · ${fmt$(m.importe, m.cuenta_moneda)}\n${desc}\n\nEsta acción no se puede deshacer y altera el saldo de la caja.`)) return;
+  try {
+    // Si era transferencia, avisar que queda la pata contraria
+    if (m.transferencia_id && !confirm('Este movimiento es parte de una TRANSFERENCIA: la otra pata NO se borra sola.\n¿Borrar igual?')) return;
+    // Si tiene factura en el bucket, borrarla también
+    if (m.factura_path) {
+      const pref = SUPABASE_URL + '/storage/v1/object/public/tesoreria-facturas/';
+      if (m.factura_path.startsWith(pref)) {
+        await sb.storage.from('tesoreria-facturas').remove([m.factura_path.slice(pref.length)]);
+      }
+    }
+    const { error } = await sb.from('tesoreria_movimientos').delete().eq('id', id);
+    if (error) throw error;
+    toast('🗑 Movimiento borrado');
+    renderMovimientos();
+  } catch (e) { toast('Error: ' + e.message, true); }
+}
+
 function renderListaMovimientos(movs, tenencias = []) {
   const cont = document.getElementById('mov-lista');
   const tablaTenencias = renderTablaTenencias(tenencias);
@@ -1131,7 +1202,7 @@ function renderListaMovimientos(movs, tenencias = []) {
         <thead><tr>
           <th style="width:30px;"></th>
           <th>Fecha</th><th>Cuenta</th><th>Local</th><th>Canal</th><th>Descripción</th>
-          <th class="right">Débitos</th><th class="right">Créditos</th><th class="right">Saldo</th>
+          <th class="right">Débitos</th><th class="right">Créditos</th><th class="right">Saldo</th>${session.verTodo ? '<th></th>' : ''}
         </tr></thead>
         <tbody>
           ${movs.map(m => {
@@ -1206,6 +1277,10 @@ function renderListaMovimientos(movs, tenencias = []) {
               <td class="right">${debito}</td>
               <td class="right">${credito}</td>
               <td class="right" style="color:var(--muted);">${saldo}</td>
+              ${session.verTodo ? `<td style="white-space:nowrap;text-align:center;">
+                <button class="btn-icon" onclick="abrirEditarMov(${m.id})" title="Editar movimiento (admin)" style="background:none;border:none;cursor:pointer;font-size:13px;padding:2px 3px;opacity:0.6;">✏️</button>
+                <button class="btn-icon" onclick="borrarMov(${m.id})" title="Borrar movimiento (admin)" style="background:none;border:none;cursor:pointer;font-size:13px;padding:2px 3px;opacity:0.6;">🗑</button>
+              </td>` : ''}
             </tr>`;
           }).join('')}
         </tbody>
