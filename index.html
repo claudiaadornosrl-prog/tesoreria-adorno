@@ -204,6 +204,22 @@ tbody tr:hover { background: var(--primary-light); }
 // CONFIG
 // ═══════════════════════════════════════════════════════════════════════
 const SUPA_URL = 'https://kwwiykssrpabncpqtmwi.supabase.co';
+
+// ── Recibos firmados: convertir la ruta archivada (OneDrive/VPS) al link web
+//    de SharePoint para poder ABRIR el PDF desde la grilla ──
+const SHAREPOINT_BASE = 'https://claudiaadorno-my.sharepoint.com/personal/office_claudiaadorno_onmicrosoft_com/Documents/DOCUMENTOS/';
+const ONEDRIVE_WIN_PREFIX = 'C:\\Users\\Usuario\\OneDrive - Claudia Adorno SRL\\DOCUMENTOS\\';
+const VPS_PREFIX = '/opt/adorno/recibos_archivados/';
+function pathToSharepointUrl(path) {
+  if (!path || typeof path !== 'string') return null;
+  if (/^https?:\/\//i.test(path)) return path;   // ya es una URL
+  let resto;
+  if (path.startsWith(ONEDRIVE_WIN_PREFIX)) resto = path.substring(ONEDRIVE_WIN_PREFIX.length);
+  else if (path.startsWith(VPS_PREFIX)) resto = path.substring(VPS_PREFIX.length);
+  else return null;
+  resto = resto.replace(/\\/g, '/');
+  return SHAREPOINT_BASE + resto.split('/').map(encodeURIComponent).join('/');
+}
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt3d2l5a3NzcnBhYm5jcHF0bXdpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkzNjI1NTQsImV4cCI6MjA5NDkzODU1NH0.O1VhKdjPahnJJ9qXcQuSKQbnKGhsEZqYmjDEfRuRpkc';
 const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY, {
   auth: { persistSession: true, autoRefreshToken: true, storageKey: 'tesoreria-adorno-auth' }
@@ -1250,7 +1266,10 @@ function renderListaMovimientos(movs, tenencias = []) {
             }
             if (m.requiere_firma) {
               if (m.firmado_at) {
-                firma = `<span class="chip" style="background:#d1fae5;color:#065f46;font-size:11px;font-weight:600;" title="Firmado el ${new Date(m.firmado_at).toLocaleDateString('es-AR')}">✓ Firmado</span>`;
+                const urlFirmado = pathToSharepointUrl(m.pdf_path);
+                firma = urlFirmado
+                  ? `<a href="${escHtml(urlFirmado)}" target="_blank" rel="noopener" class="chip" style="background:#d1fae5;color:#065f46;font-size:11px;font-weight:600;text-decoration:none;cursor:pointer;" title="Firmado el ${new Date(m.firmado_at).toLocaleDateString('es-AR')} — click para abrir el PDF guardado">✓ Firmado 🔗</a>`
+                  : `<span class="chip" style="background:#d1fae5;color:#065f46;font-size:11px;font-weight:600;" title="Firmado el ${new Date(m.firmado_at).toLocaleDateString('es-AR')}">✓ Firmado</span>`;
               } else {
                 firma = `<span class="chip" style="background:#fef3c7;color:#92400e;font-size:11px;font-weight:600;" title="Pendiente de firma — descargá y mandá por mail">⏳ Sin firmar</span>
                   <button class="btn-icon" onclick="generarPDFEgreso(${m.id})" title="Descargar recibo PDF para firmar" style="background:none;border:none;cursor:pointer;font-size:14px;padding:2px 4px;margin-left:2px;">📄</button>`;
