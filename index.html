@@ -1141,7 +1141,7 @@ async function borrarMov(id) {
   const m = _movsCache.find(x => x.id === id);
   if (!m) return;
   const desc = (m.descripcion || '').slice(0, 60);
-  if (!confirm(`¿BORRAR este movimiento?\n\n#${m.id} · ${m.fecha} · ${fmt$(m.importe, m.cuenta_moneda)}\n${desc}\n\nEsta acción no se puede deshacer y altera el saldo de la caja.`)) return;
+  if (!confirm(`¿BORRAR este movimiento?\n\n#${m.id} · ${m.fecha} · ${fmt$(m.importe, m.cuenta_moneda)}\n${desc}\n\nEsta acción no se puede deshacer y altera el saldo de la caja.${!session.verTodo ? '\n(Si ya imprimiste el recibo, rompelo — este comprobante deja de existir.)' : ''}`)) return;
   try {
     // Si era transferencia, avisar que queda la pata contraria
     if (m.transferencia_id && !confirm('Este movimiento es parte de una TRANSFERENCIA: la otra pata NO se borra sola.\n¿Borrar igual?')) return;
@@ -1155,6 +1155,24 @@ async function borrarMov(id) {
     const { error } = await sb.from('tesoreria_movimientos').delete().eq('id', id);
     if (error) throw error;
     toast('🗑 Movimiento borrado');
+    renderMovimientos();
+  } catch (e) { toast('Error: ' + e.message, true); }
+}
+
+async function reportarProblemaMov(id) {
+  const m = _movsCache.find(x => x.id === id);
+  if (!m) return;
+  const motivo = prompt(
+    `Este comprobante ya está guardado en el archivero, así que no se puede modificar desde acá.\n\n` +
+    `Contá cuál es el problema y le llega la alerta al administrador para que lo corrija:\n\n` +
+    `#${m.id} · ${fmtFecha(m.fecha)} · ${fmt$(m.importe, m.cuenta_moneda)}\n${(m.descripcion || '').slice(0, 60)}`
+  );
+  if (motivo === null) return;
+  if (!motivo.trim()) { toast('Contá cuál es el problema', true); return; }
+  try {
+    const { error } = await sb.rpc('tesoreria_reportar_problema', { p_mov_id: id, p_motivo: motivo.trim() });
+    if (error) throw error;
+    toast('⚠ Reportado — le llegó la alerta al administrador');
     renderMovimientos();
   } catch (e) { toast('Error: ' + e.message, true); }
 }
@@ -1202,7 +1220,7 @@ function renderListaMovimientos(movs, tenencias = []) {
         <thead><tr>
           <th style="width:30px;"></th>
           <th>Fecha</th><th>Cuenta</th><th>Local</th><th>Canal</th><th>Descripción</th>
-          <th class="right">Débitos</th><th class="right">Créditos</th><th class="right">Saldo</th>${session.verTodo ? '<th></th>' : ''}
+          <th class="right">Débitos</th><th class="right">Créditos</th><th class="right">Saldo</th><th></th>
         </tr></thead>
         <tbody>
           ${movs.map(m => {
@@ -1277,10 +1295,23 @@ function renderListaMovimientos(movs, tenencias = []) {
               <td class="right">${debito}</td>
               <td class="right">${credito}</td>
               <td class="right" style="color:var(--muted);">${saldo}</td>
-              ${session.verTodo ? `<td style="white-space:nowrap;text-align:center;">
-                <button class="btn-icon" onclick="abrirEditarMov(${m.id})" title="Editar movimiento (admin)" style="background:none;border:none;cursor:pointer;font-size:13px;padding:2px 3px;opacity:0.6;">✏️</button>
-                <button class="btn-icon" onclick="borrarMov(${m.id})" title="Borrar movimiento (admin)" style="background:none;border:none;cursor:pointer;font-size:13px;padding:2px 3px;opacity:0.6;">🗑</button>
-              </td>` : ''}
+              ${(() => {
+                // Admin: siempre puede editar/borrar.
+                if (session.verTodo) return `<td style="white-space:nowrap;text-align:center;">
+                  <button class="btn-icon" onclick="abrirEditarMov(${m.id})" title="Editar movimiento (admin)" style="background:none;border:none;cursor:pointer;font-size:13px;padding:2px 3px;opacity:0.6;">✏️</button>
+                  <button class="btn-icon" onclick="borrarMov(${m.id})" title="Borrar movimiento (admin)" style="background:none;border:none;cursor:pointer;font-size:13px;padding:2px 3px;opacity:0.6;">🗑</button>
+                </td>`;
+                // Encargada/cajera: sus movimientos manuales SIN firmar se
+                // pueden corregir o borrar; los ya guardados solo se reportan.
+                if (m.origen === 'manual' && !m.firmado_at) return `<td style="white-space:nowrap;text-align:center;">
+                  <button class="btn-icon" onclick="abrirEditarMov(${m.id})" title="Corregir este movimiento (todavía no está guardado en el archivero)" style="background:none;border:none;cursor:pointer;font-size:13px;padding:2px 3px;opacity:0.6;">✏️</button>
+                  <button class="btn-icon" onclick="borrarMov(${m.id})" title="Borrar este movimiento (todavía no está guardado en el archivero)" style="background:none;border:none;cursor:pointer;font-size:13px;padding:2px 3px;opacity:0.6;">🗑</button>
+                </td>`;
+                if (m.origen === 'manual' && m.firmado_at) return `<td style="white-space:nowrap;text-align:center;">
+                  <button class="btn-icon" onclick="reportarProblemaMov(${m.id})" title="Este comprobante ya está guardado en el archivero: reportale el problema al administrador" style="background:none;border:none;cursor:pointer;font-size:13px;padding:2px 3px;opacity:0.7;">⚠️</button>
+                </td>`;
+                return '<td></td>';
+              })()}
             </tr>`;
           }).join('')}
         </tbody>
