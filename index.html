@@ -1149,6 +1149,10 @@ function renderListaMovimientos(movs, tenencias = []) {
             let firma = '';
             if (m.factura_path) {
               firma = `<a href="${escHtml(m.factura_path)}" target="_blank" rel="noopener" class="chip" style="background:#e0e7ff;color:#3730a3;font-size:11px;font-weight:600;text-decoration:none;" title="${m.factura_enviada_at ? 'Factura enviada a administración el ' + new Date(m.factura_enviada_at).toLocaleDateString('es-AR') : 'Factura adjunta — pendiente de envío a administración'}">📎 Factura${m.factura_enviada_at ? ' ✓' : ''}</a>`;
+            } else if (m.respaldo_tipo === 'factura') {
+              // Purgada del bucket a los 30 días del envío — el respaldo quedó
+              // en el mail a administración y el archivero de Anita.
+              firma = `<span class="chip" style="background:#f3f4f6;color:var(--muted);font-size:11px;font-weight:600;" title="La imagen se borró del sistema a los 30 días (enviada a administración el ${m.factura_enviada_at ? new Date(m.factura_enviada_at).toLocaleDateString('es-AR') : '—'}). El respaldo está en el archivero.">📎 Archivada</span>`;
             }
             if (m.requiere_firma) {
               if (m.firmado_at) {
