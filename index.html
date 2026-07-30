@@ -220,7 +220,8 @@ const fmt$ = (n, moneda) => {
   const sign = n < 0 ? '-' : '';
   const abs = Math.abs(Number(n||0));
   const prefix = moneda === 'USD' ? 'U$D ' : '$ ';
-  return sign + prefix + abs.toLocaleString('es-AR', { maximumFractionDigits: 0 });
+  // Con centavos, como los muestra el banco (jul 2026)
+  return sign + prefix + abs.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
 const fmtFecha = d => {
   if (!d) return '—';
@@ -1736,7 +1737,7 @@ async function refrescarBadgePagosPendientes() {
 
 function fmtMoneda(n, moneda) {
   const s = moneda === 'USD' ? 'US$' : '$';
-  return s + Math.round(n).toLocaleString('es-AR');
+  return s + Number(n || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 async function renderPagosPendientes() {
