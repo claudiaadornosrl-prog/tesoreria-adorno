@@ -1147,7 +1147,7 @@ async function borrarMov(id) {
     if (m.transferencia_id && !confirm('Este movimiento es parte de una TRANSFERENCIA: la otra pata NO se borra sola.\n¿Borrar igual?')) return;
     // Si tiene factura en el bucket, borrarla también
     if (m.factura_path) {
-      const pref = SUPABASE_URL + '/storage/v1/object/public/tesoreria-facturas/';
+      const pref = SUPA_URL + '/storage/v1/object/public/tesoreria-facturas/';
       if (m.factura_path.startsWith(pref)) {
         await sb.storage.from('tesoreria-facturas').remove([m.factura_path.slice(pref.length)]);
       }
