@@ -1335,13 +1335,17 @@ function renderListaMovimientos(movs, tenencias = []) {
               <td class="right" style="color:var(--muted);">${saldo}</td>
               ${(() => {
                 // Admin: siempre puede editar/borrar.
-                if (session.verTodo) return `<td style="white-space:nowrap;text-align:center;">
+                // (3-ago) Recibo pendiente de firma: 📄 re-descarga el PDF
+                const btnPdf = (m.origen === 'manual' && m.requiere_firma && !m.firmado_at)
+                  ? `<button class="btn-icon" onclick="generarPDFEgreso(${m.id})" title="Volver a descargar el PDF del recibo (aún sin firmar)" style="background:none;border:none;cursor:pointer;font-size:13px;padding:2px 3px;opacity:0.7;">📄</button>`
+                  : '';
+                if (session.verTodo) return `<td style="white-space:nowrap;text-align:center;">${btnPdf}
                   <button class="btn-icon" onclick="abrirEditarMov(${m.id})" title="Editar movimiento (admin)" style="background:none;border:none;cursor:pointer;font-size:13px;padding:2px 3px;opacity:0.6;">✏️</button>
                   <button class="btn-icon" onclick="borrarMov(${m.id})" title="Borrar movimiento (admin)" style="background:none;border:none;cursor:pointer;font-size:13px;padding:2px 3px;opacity:0.6;">🗑</button>
                 </td>`;
                 // Encargada/cajera: sus movimientos manuales SIN firmar se
                 // pueden corregir o borrar; los ya guardados solo se reportan.
-                if (m.origen === 'manual' && !m.firmado_at) return `<td style="white-space:nowrap;text-align:center;">
+                if (m.origen === 'manual' && !m.firmado_at) return `<td style="white-space:nowrap;text-align:center;">${btnPdf}
                   <button class="btn-icon" onclick="abrirEditarMov(${m.id})" title="Corregir este movimiento (todavía no está guardado en el archivero)" style="background:none;border:none;cursor:pointer;font-size:13px;padding:2px 3px;opacity:0.6;">✏️</button>
                   <button class="btn-icon" onclick="borrarMov(${m.id})" title="Borrar este movimiento (todavía no está guardado en el archivero)" style="background:none;border:none;cursor:pointer;font-size:13px;padding:2px 3px;opacity:0.6;">🗑</button>
                 </td>`;
