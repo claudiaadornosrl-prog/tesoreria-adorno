@@ -1,5 +1,5 @@
 // Service Worker — Tesorería Adorno
-const CACHE_VERSION = 'tesoreria-adorno-v50-pdf-sin-duplicado';
+const CACHE_VERSION = 'tesoreria-adorno-v51-push-propio';
 const CACHE_ASSETS = ['./', './index.html', './manifest.webmanifest', './favicon.svg'];
 
 self.addEventListener('install', e => {
