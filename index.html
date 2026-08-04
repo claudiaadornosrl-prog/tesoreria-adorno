@@ -337,7 +337,9 @@ function enterApp() {
     // Oficina ve Pendientes y Bots (display explícito, a prueba de caches viejas)
     document.getElementById('tab-pendientes').style.display = '';
     document.getElementById('tab-scrapers').style.display = '';
-    document.getElementById('tab-cargar').style.display = '';
+    // (4-ago, JP) El apartado Recibos es SOLO de encargadas y cajeras:
+    // admin / Oficina / Marisa / Analía no lo ven, para no generar confusión.
+    document.getElementById('tab-cargar').style.display = 'none';
   } else {
     // Locales: solo Saldos + Movimientos (+ Recibos según quién sea).
     // TODO explícito: si antes entró un admin en este mismo navegador, los
