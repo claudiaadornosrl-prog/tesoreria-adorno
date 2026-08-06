@@ -12,3 +12,10 @@ scrapers/__pycache__/
 # Logs y archivos temporales del scraper
 scrapers/*.log
 scrapers/*.csv
+
+# ── REPO PÚBLICO MÍNIMO (2026-08-06) ─────────────────────────────
+# Solo se commitea lo que GitHub Pages sirve. Todo lo operativo
+# (scrapers, SQL, edge functions) queda SOLO en disco local.
+scrapers/
+sql/
+supabase/
