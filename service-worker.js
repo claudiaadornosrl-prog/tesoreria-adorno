@@ -1,5 +1,5 @@
 // Service Worker — Tesorería Adorno
-const CACHE_VERSION = 'tesoreria-adorno-v52-recibos-solo-cajeras';
+const CACHE_VERSION = 'tesoreria-adorno-v53-recibos-bloqueo-vendedoras';
 const CACHE_ASSETS = ['./', './index.html', './manifest.webmanifest', './favicon.svg'];
 
 self.addEventListener('install', e => {
