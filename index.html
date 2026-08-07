@@ -2056,7 +2056,7 @@ async function refrescarBadgePagosPendientes() {
   try {
     const { count } = await sb.from('tesoreria_pagos_pendientes')
       .select('id', { count: 'exact', head: true })
-      .eq('estado', 'pendiente')
+      .in('estado', ['pendiente','por_confirmar'])
       .lte('fecha_vencimiento', new Date(Date.now() + 7*86400000).toISOString().slice(0,10));
     const badge = document.getElementById('badge-pendientes');
     if (badge) {
@@ -2074,7 +2074,7 @@ function fmtMoneda(n, moneda) {
 async function renderPagosPendientes() {
   const cont = document.getElementById('contenido');
   cont.innerHTML = '<div class="empty"><div class="spinner"></div></div>';
-  const filtro = _filtroMostrarPagados ? ['pendiente','pagado'] : ['pendiente'];
+  const filtro = _filtroMostrarPagados ? ['pendiente','por_confirmar','pagado'] : ['pendiente','por_confirmar'];
   let q = sb.from('tesoreria_pagos_pendientes_view').select('*').in('estado', filtro);
   if (_filtroCategoria) q = q.eq('categoria', _filtroCategoria);
   if (_filtroLocal) q = q.eq('local', _filtroLocal);
@@ -2098,7 +2098,7 @@ async function renderPagosPendientes() {
           || (importeStr.includes(tnum));
     });
   }
-  const pendientes = cacheFiltrado.filter(p => p.estado === 'pendiente');
+  const pendientes = cacheFiltrado.filter(p => ['pendiente','por_confirmar'].includes(p.estado));
   const totalPos = pendientes.filter(p => +p.importe > 0).reduce((s,p) => s + +p.importe, 0);
   const totalNeg = pendientes.filter(p => +p.importe < 0).reduce((s,p) => s + +p.importe, 0);
   const grupos = { vencido:[], hoy:[], esta_semana:[], este_mes:[], futuro:[], pagado:[], cancelado:[] };
@@ -2149,7 +2149,7 @@ async function renderPagosPendientes() {
       const items = grupos[u] || [];
       if (!items.length) return '';
       const cfg = URGENCIA_CFG[u] || { label: u.toUpperCase(), color: '#475569', bg: '#f8fafc' };
-      const subtotal = items.filter(p => p.estado === 'pendiente').reduce((s,p) => s + +p.importe, 0);
+      const subtotal = items.filter(p => ['pendiente','por_confirmar'].includes(p.estado)).reduce((s,p) => s + +p.importe, 0);
       return `<div style="margin-bottom:14px;">
         <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:${cfg.bg};border-left:4px solid ${cfg.color};border-radius:6px;margin-bottom:6px;">
           <div style="font-weight:700;color:${cfg.color};">${cfg.label} <span style="color:var(--muted);font-weight:500;font-size:13px;">(${items.length})</span></div>
@@ -2178,8 +2178,13 @@ function renderPagoItem(p) {
   const estadoBadge = p.estado === 'pagado'
     ? `<span style="background:#dcfce7;color:#166534;padding:1px 8px;border-radius:10px;font-size:10px;font-weight:600;">✓ PAGADO</span>`
     : (p.estado === 'cancelado'
-      ? `<span style="background:#fee2e2;color:#991b1b;padding:1px 8px;border-radius:10px;font-size:10px;font-weight:600;">✗ CANCELADO</span>` : '');
-  const acciones = p.estado === 'pendiente'
+      ? `<span style="background:#fee2e2;color:#991b1b;padding:1px 8px;border-radius:10px;font-size:10px;font-weight:600;">✗ CANCELADO</span>`
+      : (p.estado === 'por_confirmar'
+        ? `<span style="background:#fef3c7;color:#92400e;padding:1px 8px;border-radius:10px;font-size:10px;font-weight:600;" title="El sistema detectó un egreso bancario del mismo importe">🤔 ¿PAGADO?</span>` : ''));
+  const acciones = p.estado === 'por_confirmar'
+    ? `<button class="btn-secondary" style="font-size:12px;padding:5px 10px;color:#16a34a;border-color:#86efac;font-weight:700;" onclick="event.stopPropagation();confirmarMatchPago(${p.id}, ${p.movimiento_id || 'null'})">✓ Sí, pagado</button>
+       <button class="btn-secondary" style="font-size:12px;padding:5px 10px;" onclick="event.stopPropagation();rechazarMatchPago(${p.id})">✗ No es</button>`
+    : p.estado === 'pendiente'
     ? `<button class="btn-secondary" style="font-size:12px;padding:5px 10px;color:#16a34a;border-color:#86efac;" onclick="event.stopPropagation();marcarComoPagado(${p.id})">✓ Pagado</button>
        <button class="btn-secondary" style="font-size:12px;padding:5px 10px;" onclick="event.stopPropagation();abrirEditarPago(${p.id})">✏️</button>
        <button class="btn-secondary" style="font-size:12px;padding:5px 10px;color:#dc2626;border-color:#fca5a5;" onclick="event.stopPropagation();cancelarPago(${p.id})">✗</button>`
@@ -2195,6 +2200,26 @@ function renderPagoItem(p) {
     <div style="font-weight:700;font-size:15px;color:${colorImp};text-align:right;font-variant-numeric:tabular-nums;">${labelImp}${fmtMoneda(Math.abs(+p.importe), p.moneda)}</div>
     <div style="display:flex;gap:4px;">${acciones}</div>
   </div>`;
+}
+
+// ── Matcheo automático: el trigger de la base detectó un egreso bancario
+//    del mismo importe y dejó el pendiente "por_confirmar" ──────────────
+async function confirmarMatchPago(id, movimientoId) {
+  try {
+    const { error } = await sb.rpc('marcar_pago_realizado', { p_id: id, p_movimiento_id: movimientoId, p_pagado_por: session.email || 'admin' });
+    if (error) throw error;
+    toast('✓ Confirmado como pagado');
+    renderPagosPendientes(); refrescarBadgePagosPendientes();
+  } catch (e) { alert('Error: ' + e.message); }
+}
+async function rechazarMatchPago(id) {
+  try {
+    const { error } = await sb.from('tesoreria_pagos_pendientes')
+      .update({ estado: 'pendiente', movimiento_id: null }).eq('id', id);
+    if (error) throw error;
+    toast('Vuelve a Pendientes');
+    renderPagosPendientes(); refrescarBadgePagosPendientes();
+  } catch (e) { alert('Error: ' + e.message); }
 }
 
 async function marcarComoPagado(id) {
