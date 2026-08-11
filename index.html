@@ -1869,9 +1869,11 @@ async function guardarMovimiento() {
 // ═══════════════════════════════════════════════════════════════════════
 async function renderScrapers() {
   const cont = document.getElementById('contenido');
-  if (session.rol !== 'admin') { cont.innerHTML = '<div class="empty">Solo admin</div>'; return; }
+  if (!session.esOficina) { cont.innerHTML = '<div class="empty">Solo Oficina</div>'; return; }
   cont.innerHTML = '<div class="empty"><div class="spinner"></div></div>';
-  const { data: scrapers, error } = await sb.from('tesoreria_scrapers').select('*').order('servicio');
+  // RPC sin credenciales (11-ago): el grupo Oficina ve estado y ejecuta,
+  // la tabla real (con usuario/contraseña del banco) sigue siendo solo admin.
+  const { data: scrapers, error } = await sb.rpc('tesoreria_bots_estado');
   if (error) { cont.innerHTML = `<div class="empty">Error: ${escHtml(error.message)}</div>`; return; }
   cont.innerHTML = `
     <div class="card" style="background:#fef3c7;border-left:4px solid #f59e0b;padding:12px;">
@@ -1901,7 +1903,7 @@ async function renderScrapers() {
           <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;">
             <div style="font-size:11px;font-weight:600;color:${s.activo?'#065f46':'#991b1b'};">${s.activo?'✓ ACTIVO':'✗ INACTIVO'}</div>
             ${s.activo ? `<button class="btn-primary" style="width:auto;padding:8px 14px;" onclick="ejecutarScraperAhora(${s.id}, '${escHtml(s.nombre)}')">▶️ Ejecutar ahora</button>` : ''}
-            <button class="btn-secondary" onclick="abrirEditarScraper(${s.id})">✏️ Editar credenciales</button>
+            ${session.rol === 'admin' ? `<button class="btn-secondary" onclick="abrirEditarScraper(${s.id})">✏️ Editar credenciales</button>` : ''}
           </div>
         </div>
       </div>
@@ -1914,10 +1916,9 @@ async function ejecutarScraperAhora(id, nombre) {
   // main.py corriendo en loop en la PC lo detecta en el próximo polling
   // (cada POLL_SECONDS, default 5 min) y lo ejecuta.
   try {
-    const { error } = await sb.from('tesoreria_scrapers')
-      .update({ proximo_run: new Date(Date.now() - 60_000).toISOString() })
-      .eq('id', id);
+    const { data: ok, error } = await sb.rpc('tesoreria_bot_ejecutar', { p_id: id });
     if (error) throw error;
+    if (!ok) throw new Error('No se pudo encolar (¿scraper inactivo?)');
     toast(`✓ ${nombre} encolado — la PC lo corre en el próximo ciclo (≤5 min). Requiere "py main.py" corriendo en la PC.`);
     renderScrapers();
   } catch (e) { toast('Error: ' + e.message, true); }
