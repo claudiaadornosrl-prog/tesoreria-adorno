@@ -310,7 +310,7 @@ async function initSession() {
     // (10-ago) Marisa/Analía son rol empleado pero admin-oficina por email
     // (mismo par que tesoreria_es_admin_oficina() en la DB) — no son cajeras
     // y no deben caer en el logout.
-    const _ADMIN_OF = ['marisaisabel07@yahoo.com.ar', 'rivera.analia.leon@gmail.com'];
+    const _ADMIN_OF = ['marisaisabel07@yahoo.com.ar', 'rivera.analia.leon@gmail.com', 'administracion@claudiaadorno.com', 'claudiaadorno@claudiaadorno.com'];
     if (!_ADMIN_OF.includes((session.email || '').toLowerCase())) {
       const { data: cajLocal } = await sb.rpc('tesoreria_cajera_local');
       if (!cajLocal) {
@@ -338,7 +338,7 @@ function enterApp() {
   // ── Visibilidad de tabs por rol ──
   // "Oficina" = admin, gerente de oficina, o Marisa/Analía (mismo par de
   // emails que tesoreria_es_admin_oficina() en la DB — mantener sincronizado).
-  const ADMIN_OFICINA_EMAILS = ['marisaisabel07@yahoo.com.ar', 'rivera.analia.leon@gmail.com'];
+  const ADMIN_OFICINA_EMAILS = ['marisaisabel07@yahoo.com.ar', 'rivera.analia.leon@gmail.com', 'administracion@claudiaadorno.com', 'claudiaadorno@claudiaadorno.com'];
   session.esOficina = session.verTodo ||
     ADMIN_OFICINA_EMAILS.includes((session.email || '').toLowerCase());
   if (session.esOficina) {
@@ -1035,6 +1035,11 @@ async function renderMovimientos() {
       <input type="date" id="mov-desde" value="${_movFiltroDesde}" onchange="_movFiltroDesde=this.value; renderMovimientos();">
       <label style="font-size:12px;color:var(--muted);">Hasta:</label>
       <input type="date" id="mov-hasta" value="${_movFiltroHasta}" onchange="_movFiltroHasta=this.value; renderMovimientos();">
+      <input type="search" id="mov-buscar" placeholder="🔎 Importe, proveedor, descripción…" value="${escHtml(_movBusca)}"
+             oninput="_movBusca=this.value; filtrarMovsLocal();"
+             style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;min-width:190px;">
+      <button onclick="exportarMovsExcel()" title="Descargar lo filtrado en Excel"
+              style="background:none;border:1px solid var(--border);border-radius:8px;padding:6px 10px;cursor:pointer;font-size:13px;">⬇ Excel</button>
       <div class="spacer"></div>
       <button class="primary" onclick="cambiarTab('cargar')">➕ Cargar movimiento</button>
     </div>
@@ -1064,7 +1069,8 @@ async function renderMovimientos() {
     const { data, error } = await q;
     if (error) throw error;
     _movsCache = data || [];
-    renderListaMovimientos(_movsCache, tenencias);
+    _tenenciasCache = tenencias;
+    filtrarMovsLocal();
   } catch (e) {
     document.getElementById('mov-lista').innerHTML = `<div class="empty"><div class="icon">⚠️</div>Error: ${escHtml(e.message)}</div>`;
   }
@@ -1143,6 +1149,59 @@ function renderTablaTenencias(tenencias) {
 }
 
 let _movsCache = [];
+let _tenenciasCache = [];
+let _movBusca = '';
+
+// ── Buscador local (11-ago, pedido Marisa): filtra los movs ya cargados ──
+function _movsFiltrados() {
+  const t = (_movBusca || '').toLowerCase().trim();
+  if (!t) return _movsCache;
+  const tNum = t.replace(/\./g, '').replace(',', '.');
+  return _movsCache.filter(m =>
+    (m.descripcion || '').toLowerCase().includes(t) ||
+    (m.nota || '').toLowerCase().includes(t) ||
+    (m.categoria_nombre || '').toLowerCase().includes(t) ||
+    (m.cuenta_nombre || '').toLowerCase().includes(t) ||
+    String(Math.round(Math.abs(m.importe))).includes(tNum) ||
+    JSON.stringify(m.extra || {}).toLowerCase().includes(t));
+}
+function filtrarMovsLocal() {
+  renderListaMovimientos(_movsFiltrados(), _tenenciasCache || []);
+}
+
+// ── Export Excel de lo filtrado (SheetJS bajo demanda) ──
+async function _loadXLSX() {
+  if (window.XLSX) return;
+  await new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    s.onload = res; s.onerror = () => rej(new Error('No se pudo cargar la librería Excel (¿sin internet?)'));
+    document.head.appendChild(s);
+  });
+}
+async function exportarMovsExcel() {
+  try {
+    await _loadXLSX();
+    const movs = _movsFiltrados();
+    if (!movs.length) return alert('No hay movimientos para exportar con estos filtros.');
+    const filas = movs.map(m => ({
+      Fecha: m.fecha,
+      Cuenta: m.cuenta_nombre || '',
+      Descripcion: m.descripcion || '',
+      Categoria: m.categoria_nombre || '',
+      Importe: Number(m.importe),
+      'Saldo post': m.saldo_post != null ? Number(m.saldo_post) : null,
+      Nota: m.nota || '',
+      'CUIT/Razón social': [(m.extra || {}).cuit, (m.extra || {}).razon_social].filter(Boolean).join(' · '),
+    }));
+    const ws = XLSX.utils.json_to_sheet(filas);
+    ws['!cols'] = [{wch:10},{wch:20},{wch:45},{wch:18},{wch:14},{wch:14},{wch:30},{wch:28}];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Movimientos');
+    const cta = _movFiltroCuenta ? (_cuentas.find(c => c.id == _movFiltroCuenta)?.nombre || 'cuenta').replace(/[^\w]+/g, '_') : 'todas';
+    XLSX.writeFile(wb, `movimientos_${cta}_${_movFiltroDesde}_a_${_movFiltroHasta}.xlsx`);
+  } catch (e) { alert('Error al exportar: ' + e.message); }
+}
 
 // ═══ Editar / borrar movimiento (solo admin) ═══
 function abrirEditarMov(id) {
@@ -1395,7 +1454,9 @@ function renderCargar() {
   const cajaGerente = esGerente
     ? (_cuentas.find(c => c.tipo === 'caja' && c.local === session.localGerencia)
        || _cuentas.find(c => c.tipo === 'caja'))  // cajera: su única caja visible
-    : null;
+    // (11-ago, pedido Marisa) Oficina: preseleccionar Caja Oficina — antes
+    // quedaba la primera del array (Caja Alcorta) y cargaban ahí por error.
+    : (_cuentas.find(c => c.tipo === 'caja' && c.local === 'oficina') || null);
   const cuentasOpt = _cuentas.map(c => {
     const sel = cajaGerente && c.id === cajaGerente.id ? 'selected' : '';
     return `<option value="${c.id}" ${sel}>${escHtml(c.nombre)} (${c.moneda})</option>`;
