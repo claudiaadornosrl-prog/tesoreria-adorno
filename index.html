@@ -2118,7 +2118,7 @@ const URGENCIA_CFG = {
   futuro:      { label: '⏳ Futuro',      color: '#475569', bg: '#f8fafc' },
 };
 let _pagosPendientesCache = [];
-let _filtroCategoria = '', _filtroLocal = '', _filtroMostrarPagados = false, _filtroTexto = '';
+let _filtroCategoria = '', _filtroLocal = '', _filtroEstado = 'pendientes', _filtroTexto = '';
 
 async function refrescarBadgePagosPendientes() {
   try {
@@ -2142,7 +2142,9 @@ function fmtMoneda(n, moneda) {
 async function renderPagosPendientes() {
   const cont = document.getElementById('contenido');
   cont.innerHTML = '<div class="empty"><div class="spinner"></div></div>';
-  const filtro = _filtroMostrarPagados ? ['pendiente','por_confirmar','pagado'] : ['pendiente','por_confirmar'];
+  const filtro = _filtroEstado === 'pagados' ? ['pagado']
+    : _filtroEstado === 'todos' ? ['pendiente','por_confirmar','pagado','cancelado']
+    : ['pendiente','por_confirmar'];
   let q = sb.from('tesoreria_pagos_pendientes_view').select('*').in('estado', filtro);
   if (_filtroCategoria) q = q.eq('categoria', _filtroCategoria);
   if (_filtroLocal) q = q.eq('local', _filtroLocal);
@@ -2206,10 +2208,11 @@ async function renderPagosPendientes() {
         <option value="unicenter" ${_filtroLocal==='unicenter'?'selected':''}>Unicenter</option>
         <option value="oficina" ${_filtroLocal==='oficina'?'selected':''}>Oficina</option>
       </select>
-      <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
-        <input type="checkbox" ${_filtroMostrarPagados?'checked':''} onchange="_filtroMostrarPagados=this.checked;renderPagosPendientes();">
-        Mostrar pagados
-      </label>
+      <select onchange="_filtroEstado=this.value;renderPagosPendientes();" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
+        <option value="pendientes" ${_filtroEstado==='pendientes'?'selected':''}>Pendientes</option>
+        <option value="pagados" ${_filtroEstado==='pagados'?'selected':''}>Solo pagados</option>
+        <option value="todos" ${_filtroEstado==='todos'?'selected':''}>Mostrar todos</option>
+      </select>
       <div style="flex:1;"></div>
       <button class="btn-primary" style="width:auto;padding:8px 16px;font-size:13px;" onclick="abrirFormNuevoPago()">+ Nuevo pago</button>
     </div>
@@ -2242,7 +2245,7 @@ function renderPagoItem(p) {
   const localBadge = p.local && p.local !== 'general'
     ? `<span style="background:#ede9fe;color:#5b21b6;padding:1px 8px;border-radius:10px;font-size:10px;font-weight:600;">${p.local.toUpperCase()}</span>` : '';
   const recurrenteBadge = p.recurrente
-    ? `<span style="background:#dcfce7;color:#166534;padding:1px 8px;border-radius:10px;font-size:10px;font-weight:600;" title="Recurrente">🔁 ${p.frecuencia}</span>` : '';
+    ? `<span style="background:#dcfce7;color:#166534;padding:1px 8px;border-radius:10px;font-size:10px;font-weight:600;" title="Recurrente">🔁 ${p.frecuencia}${p.recurrente_veces ? ' × ' + p.recurrente_veces : ''}</span>` : '';
   const estadoBadge = p.estado === 'pagado'
     ? `<span style="background:#dcfce7;color:#166534;padding:1px 8px;border-radius:10px;font-size:10px;font-weight:600;">✓ PAGADO</span>`
     : (p.estado === 'cancelado'
@@ -2328,6 +2331,17 @@ function abrirFormPago(existente, precarga) {
       <button onclick="document.getElementById('modal-pago').remove();" style="background:none;border:none;cursor:pointer;font-size:18px;color:#64748b;">✕</button>
     </div>
     <div style="display:grid;gap:10px;">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <label><div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600;margin-bottom:3px;">Categoría *</div>
+          <select id="f-categoria" onchange="renderOrigenPago(this.value)" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;box-sizing:border-box;">
+            ${Object.entries(CAT_LABELS).map(([k,v]) => `<option value="${k}" ${p.categoria===k?'selected':''}>${v}</option>`).join('')}
+          </select></label>
+        <label><div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600;margin-bottom:3px;">Medio de pago *</div>
+          <select id="f-medio" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;box-sizing:border-box;">
+            ${Object.entries(MEDIO_LABELS).map(([k,v]) => `<option value="${k}" ${p.medio_pago===k?'selected':''}>${v}</option>`).join('')}
+          </select></label>
+      </div>
+      <div id="f-origen-wrap" style="display:grid;gap:4px;"></div>
       <label><div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600;margin-bottom:3px;">Concepto *</div>
         <input id="f-concepto" type="text" value="${escHtml(p.concepto||'')}" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;box-sizing:border-box;"></label>
       <label><div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600;margin-bottom:3px;">Destinatario</div>
@@ -2343,17 +2357,7 @@ function abrirFormPago(existente, precarga) {
       </div>
       <label><div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600;margin-bottom:3px;">Fecha vencimiento *</div>
         <input id="f-fecha" type="date" value="${fechaDefault}" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;box-sizing:border-box;"></label>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-        <label><div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600;margin-bottom:3px;">Categoría *</div>
-          <select id="f-categoria" onchange="renderOrigenPago(this.value)" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;box-sizing:border-box;">
-            ${Object.entries(CAT_LABELS).map(([k,v]) => `<option value="${k}" ${p.categoria===k?'selected':''}>${v}</option>`).join('')}
-          </select></label>
-        <label><div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600;margin-bottom:3px;">Medio de pago *</div>
-          <select id="f-medio" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;box-sizing:border-box;">
-            ${Object.entries(MEDIO_LABELS).map(([k,v]) => `<option value="${k}" ${p.medio_pago===k?'selected':''}>${v}</option>`).join('')}
-          </select></label>
-      </div>
-      <div id="f-origen-wrap" style="display:grid;gap:4px;"></div>
+
       <label><div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600;margin-bottom:3px;">Local</div>
         <select id="f-local" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;box-sizing:border-box;">
           <option value="general" ${p.local==='general'||!p.local?'selected':''}>General</option>
@@ -2362,10 +2366,10 @@ function abrirFormPago(existente, precarga) {
           <option value="oficina" ${p.local==='oficina'?'selected':''}>Oficina</option>
         </select></label>
       <label style="display:flex;align-items:center;gap:8px;font-size:13px;background:#f8fafc;padding:10px;border-radius:6px;cursor:pointer;">
-        <input id="f-recurrente" type="checkbox" ${p.recurrente?'checked':''} onchange="document.getElementById('f-frecuencia-wrap').style.display=this.checked?'block':'none';">
+        <input id="f-recurrente" type="checkbox" ${p.recurrente?'checked':''} onchange="document.getElementById('f-frecuencia-wrap').style.display=this.checked?'grid':'none';">
         <span>🔁 Pago recurrente</span>
       </label>
-      <div id="f-frecuencia-wrap" style="display:${p.recurrente?'block':'none'};">
+      <div id="f-frecuencia-wrap" style="display:${p.recurrente?'grid':'none'};grid-template-columns:1fr 1fr;gap:10px;">
         <label><div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600;margin-bottom:3px;">Frecuencia</div>
           <select id="f-frecuencia" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;box-sizing:border-box;">
             <option value="mensual" ${p.frecuencia==='mensual'||!p.frecuencia?'selected':''}>Mensual</option>
@@ -2374,6 +2378,9 @@ function abrirFormPago(existente, precarga) {
             <option value="semestral" ${p.frecuencia==='semestral'?'selected':''}>Semestral</option>
             <option value="anual" ${p.frecuencia==='anual'?'selected':''}>Anual</option>
           </select></label>
+        <label><div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600;margin-bottom:3px;">Cantidad de veces</div>
+          <input id="f-rec-veces" type="number" min="1" max="120" value="${p.recurrente_veces||''}" placeholder="Sin fin"
+                 style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;box-sizing:border-box;"></label>
       </div>
       <label><div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600;margin-bottom:3px;">Notas</div>
         <textarea id="f-notas" rows="2" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;box-sizing:border-box;font-family:inherit;">${escHtml(p.notas||'')}</textarea></label>
@@ -2423,7 +2430,7 @@ function renderOrigenPago(cat) {
       <option value="__nuevo__">➕ Nuevo impuesto…</option></select></label>`;
   } else if (cat === 'proveedores') {
     wrap.innerHTML = `<label>${lbl('Proveedor (Dragonfish)')}<input id="f-orig-prov" list="dl-provs" placeholder="Escribí para buscar…" style="${st}" onchange="elegirProveedor(this.value)">
-      <datalist id="dl-provs">${c.provs.map(pv => `<option value="${escHtml(pv.nombre)}">`).join('')}</datalist></label>
+      <datalist id="dl-provs">${c.provs.map(pv => `<option value="${escHtml(pv.nombre)}${pv.cuit_norm ? ' · ' + pv.cuit_norm : ''}">`).join('')}</datalist></label>
       <button type="button" class="btn-secondary" style="font-size:12px;padding:6px 10px;justify-self:start;" onclick="nuevoProveedorManual()">➕ Proveedor nuevo (no está en Dragonfish)</button>`;
   } else if (cat === 'empleados') {
     wrap.innerHTML = `<label>${lbl('Empleada')}<select id="f-orig-emp" style="${st}" onchange="elegirEmpleada(this.value)">
@@ -2460,9 +2467,16 @@ async function elegirImpuesto(v) {
   _setVal('f-destinatario', imp.ente || imp.nombre);
 }
 
-function elegirProveedor(nombre) {
-  const pv = (_cat_carga.provs || []).find(x => x.nombre === nombre);
+function elegirProveedor(valor) {
+  // El datalist trae "Nombre · CUIT" — matchear por el string completo,
+  // por nombre solo, o por CUIT tipeado a mano (solo dígitos).
+  const soloDigitos = (valor || '').replace(/\D/g, '');
+  const pv = (_cat_carga.provs || []).find(x =>
+    valor === (x.nombre + (x.cuit_norm ? ' · ' + x.cuit_norm : '')) ||
+    x.nombre === valor ||
+    (soloDigitos.length === 11 && x.cuit_norm === soloDigitos));
   if (!pv) return;
+  document.getElementById('f-orig-prov').value = pv.nombre;
   _origenSel = { proveedor_codigo: pv.codigo, proveedor_cuit: pv.cuit_norm };
   document.getElementById('f-destinatario').value = pv.nombre;
   _setVal('f-concepto', pv.nombre + ' FC ');
@@ -2543,11 +2557,12 @@ async function guardarPago(id) {
   const local = document.getElementById('f-local').value;
   const recurrente = document.getElementById('f-recurrente').checked;
   const frecuencia = recurrente ? document.getElementById('f-frecuencia').value : null;
+  const recurrente_veces = recurrente ? (parseInt(document.getElementById('f-rec-veces').value) || null) : null;
   const notas = document.getElementById('f-notas').value.trim() || null;
   if (!concepto) return alert('Falta el concepto');
   if (importe === null || isNaN(importe)) return alert('Falta el importe');
   if (!fecha_vencimiento) return alert('Falta la fecha de vencimiento');
-  const payload = { concepto, destinatario, importe, moneda, fecha_vencimiento, categoria, medio_pago, local, recurrente, frecuencia, notas };
+  const payload = { concepto, destinatario, importe, moneda, fecha_vencimiento, categoria, medio_pago, local, recurrente, frecuencia, recurrente_veces, notas };
   if (categoria === 'proveedores' && _origenSel.proveedor_codigo) {
     payload.proveedor_codigo = _origenSel.proveedor_codigo;
     payload.proveedor_cuit = _origenSel.proveedor_cuit || null;
