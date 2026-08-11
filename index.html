@@ -307,14 +307,20 @@ async function initSession() {
   // Una empleada (rol 'empleado') solo entra si está en tesoreria_cajeras:
   // la RPC devuelve su local; para el resto de las empleadas devuelve null.
   if (u.rol === 'empleado') {
-    const { data: cajLocal } = await sb.rpc('tesoreria_cajera_local');
-    if (!cajLocal) {
-      alert('Tu usuario no tiene acceso a Tesorería.');
-      await logout();
-      return false;
+    // (10-ago) Marisa/Analía son rol empleado pero admin-oficina por email
+    // (mismo par que tesoreria_es_admin_oficina() en la DB) — no son cajeras
+    // y no deben caer en el logout.
+    const _ADMIN_OF = ['marisaisabel07@yahoo.com.ar', 'rivera.analia.leon@gmail.com'];
+    if (!_ADMIN_OF.includes((session.email || '').toLowerCase())) {
+      const { data: cajLocal } = await sb.rpc('tesoreria_cajera_local');
+      if (!cajLocal) {
+        alert('Tu usuario no tiene acceso a Tesorería.');
+        await logout();
+        return false;
+      }
+      session.localGerencia = cajLocal;
+      session.esCajera = true;
     }
-    session.localGerencia = cajLocal;
-    session.esCajera = true;
   }
   enterApp();
   return true;
@@ -343,6 +349,8 @@ function enterApp() {
     // Lo que hay que bloquear son vendedoras y usuarios genéricos de local,
     // para que no puedan tocar la caja (ver rama de abajo).
     document.getElementById('tab-cargar').style.display = '';
+    // (10-ago) fix: Pendientes firma quedaba display:none para siempre
+    document.getElementById('tab-firma').style.display = '';
   } else {
     // Locales: solo Saldos + Movimientos (+ Recibos según quién sea).
     // TODO explícito: si antes entró un admin en este mismo navegador, los
@@ -357,6 +365,9 @@ function enterApp() {
     const generico = session.rol === 'gerente' && !session.empleado_id;
     const vendedora = session.rol === 'empleado' && !session.esCajera;
     document.getElementById('tab-cargar').style.display =
+      (generico || vendedora) ? 'none' : '';
+    // (10-ago) fix: misma visibilidad para Pendientes firma
+    document.getElementById('tab-firma').style.display =
       (generico || vendedora) ? 'none' : '';
   }
   cargar();
@@ -845,7 +856,7 @@ function setCuentaDefaultDesdeSaldos(cuentaId) {
     _movFiltroCuenta = String(cuentaId);
     toast(`⭐ ${cta ? cta.nombre : 'Caja'} quedó como predeterminada en este dispositivo`);
   }
-  renderSaldos();
+  renderDashboard();  // (10-ago) fix: renderSaldos no existía
 }
 
 // ─── Actualizar saldo ancla manual ────────────────────────────────
@@ -2027,15 +2038,10 @@ async function actualizarBtnNotifs() {
 // PAGOS PENDIENTES (cuentas por pagar)
 // ═══════════════════════════════════════════════════════════════════════
 const CAT_LABELS = {
-  servicios: '🔌 Servicios',
-  alquiler:  '🏬 Alquiler',
   impuestos: '🏛️ Impuestos',
-  sueldos:   '👥 Sueldos',
   proveedores: '📦 Proveedores',
-  tarjetas:  '💳 Tarjetas',
-  bancos:    '🏦 Bancos',
-  honorarios: '👨‍⚖️ Honorarios',
-  adelantos: '💰 Adelantos / Préstamos',
+  empleados: '👥 Empleados',
+  socios: '🤝 Socios',
   otros:     '📌 Otros',
 };
 const MEDIO_LABELS = {
@@ -2277,7 +2283,7 @@ function abrirFormPago(existente, precarga) {
         <input id="f-fecha" type="date" value="${fechaDefault}" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;box-sizing:border-box;"></label>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
         <label><div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600;margin-bottom:3px;">Categoría *</div>
-          <select id="f-categoria" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;box-sizing:border-box;">
+          <select id="f-categoria" onchange="renderOrigenPago(this.value)" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;box-sizing:border-box;">
             ${Object.entries(CAT_LABELS).map(([k,v]) => `<option value="${k}" ${p.categoria===k?'selected':''}>${v}</option>`).join('')}
           </select></label>
         <label><div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600;margin-bottom:3px;">Medio de pago *</div>
@@ -2285,6 +2291,7 @@ function abrirFormPago(existente, precarga) {
             ${Object.entries(MEDIO_LABELS).map(([k,v]) => `<option value="${k}" ${p.medio_pago===k?'selected':''}>${v}</option>`).join('')}
           </select></label>
       </div>
+      <div id="f-origen-wrap" style="display:grid;gap:4px;"></div>
       <label><div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600;margin-bottom:3px;">Local</div>
         <select id="f-local" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;box-sizing:border-box;">
           <option value="general" ${p.local==='general'||!p.local?'selected':''}>General</option>
@@ -2315,7 +2322,153 @@ function abrirFormPago(existente, precarga) {
     </div>
   </div>`;
   document.body.appendChild(wrap);
+  cargarCatalogosCarga().then(() => renderOrigenPago(document.getElementById('f-categoria').value)).catch(() => {});
 }
+
+// ═══════════ Carga estructurada por categoría (11-ago-2026) ═══════════
+let _cat_carga = null;      // catálogos: impuestos, socios, proveedores, empleadas, préstamos
+let _origenSel = {};        // proveedor elegido {proveedor_codigo, proveedor_cuit}
+
+async function cargarCatalogosCarga(force) {
+  if (_cat_carga && !force) return _cat_carga;
+  const [imp, soc, prov, emp] = await Promise.all([
+    sb.from('tesoreria_impuestos').select('*').eq('activo', true).order('nombre'),
+    sb.from('tesoreria_socios').select('*').eq('activo', true).order('nombre'),
+    sb.from('tesoreria_proveedores').select('codigo,nombre,cuit_norm').eq('activo', true).order('nombre'),
+    sb.rpc('tesoreria_empleadas_pagos'),
+  ]);
+  _cat_carga = {
+    impuestos: imp.data || [], socios: soc.data || [], provs: prov.data || [],
+    empleadas: emp.data?.empleadas || [], prestamos: emp.data?.prestamos || [],
+  };
+  return _cat_carga;
+}
+function _setVal(id, v) { const el = document.getElementById(id); if (el && !el.value.trim()) el.value = v; }
+function _mesActual() { const d = new Date(); return (d.getMonth() + 1) + '-' + d.getFullYear(); }
+
+function renderOrigenPago(cat) {
+  const wrap = document.getElementById('f-origen-wrap');
+  if (!wrap) return;
+  _origenSel = {};
+  const c = _cat_carga;
+  if (!c) { wrap.innerHTML = ''; return; }
+  const lbl = (t) => `<div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600;margin-bottom:3px;">${t}</div>`;
+  const st = 'width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;box-sizing:border-box;';
+  if (cat === 'impuestos') {
+    wrap.innerHTML = `<label>${lbl('Impuesto')}<select id="f-orig-imp" style="${st}" onchange="elegirImpuesto(this.value)">
+      <option value="">— Elegir del listado —</option>
+      ${c.impuestos.map(i => `<option value="${i.id}">${escHtml(i.nombre)}${i.ente ? ' · ' + escHtml(i.ente) : ''}</option>`).join('')}
+      <option value="__nuevo__">➕ Nuevo impuesto…</option></select></label>`;
+  } else if (cat === 'proveedores') {
+    wrap.innerHTML = `<label>${lbl('Proveedor (Dragonfish)')}<input id="f-orig-prov" list="dl-provs" placeholder="Escribí para buscar…" style="${st}" onchange="elegirProveedor(this.value)">
+      <datalist id="dl-provs">${c.provs.map(pv => `<option value="${escHtml(pv.nombre)}">`).join('')}</datalist></label>
+      <button type="button" class="btn-secondary" style="font-size:12px;padding:6px 10px;justify-self:start;" onclick="nuevoProveedorManual()">➕ Proveedor nuevo (no está en Dragonfish)</button>`;
+  } else if (cat === 'empleados') {
+    wrap.innerHTML = `<label>${lbl('Empleada')}<select id="f-orig-emp" style="${st}" onchange="elegirEmpleada(this.value)">
+      <option value="">— Elegir —</option>
+      ${c.empleadas.map(e => `<option value="${e.id}">${escHtml(e.nombre)} (${escHtml(e.local || '')})</option>`).join('')}</select></label>
+      <div id="f-orig-emp-prestamo"></div>`;
+  } else if (cat === 'socios') {
+    wrap.innerHTML = `<label>${lbl('Socio')}<select id="f-orig-soc" style="${st}" onchange="elegirSocio(this.value)">
+      <option value="">— Elegir —</option>
+      ${c.socios.map(s => `<option value="${s.id}">${escHtml(s.nombre)}</option>`).join('')}
+      <option value="__nuevo__">➕ Nuevo socio…</option></select></label>`;
+  } else {
+    wrap.innerHTML = '';
+  }
+}
+
+async function elegirImpuesto(v) {
+  if (v === '__nuevo__') {
+    const nombre = prompt('Nombre del impuesto (ej: "Tasa Seguridad e Higiene"):');
+    if (!nombre) { document.getElementById('f-orig-imp').value = ''; return; }
+    const ente = prompt('Ente (AFIP / ARBA / Municipalidad / etc.):') || null;
+    const { data, error } = await sb.from('tesoreria_impuestos')
+      .insert({ nombre: nombre.trim(), ente, created_by: session.email }).select().single();
+    if (error) return alert('No se pudo crear: ' + error.message);
+    await cargarCatalogosCarga(true);
+    renderOrigenPago('impuestos');
+    document.getElementById('f-orig-imp').value = data.id;
+    elegirImpuesto(String(data.id));
+    return;
+  }
+  const imp = (_cat_carga.impuestos || []).find(i => String(i.id) === String(v));
+  if (!imp) return;
+  document.getElementById('f-concepto').value = imp.nombre + ' ' + _mesActual();
+  _setVal('f-destinatario', imp.ente || imp.nombre);
+}
+
+function elegirProveedor(nombre) {
+  const pv = (_cat_carga.provs || []).find(x => x.nombre === nombre);
+  if (!pv) return;
+  _origenSel = { proveedor_codigo: pv.codigo, proveedor_cuit: pv.cuit_norm };
+  document.getElementById('f-destinatario').value = pv.nombre;
+  _setVal('f-concepto', pv.nombre + ' FC ');
+}
+
+async function nuevoProveedorManual() {
+  const nombre = prompt('Nombre / razón social del proveedor nuevo:');
+  if (!nombre) return;
+  const cuit = (prompt('CUIT (opcional, mejora el match automático de pagos):') || '').replace(/\D/g, '');
+  const codigo = 'MAN-' + Date.now();
+  const { error } = await sb.from('tesoreria_proveedores').insert({
+    codigo, nombre: nombre.trim(), cuit: cuit || null,
+    cuit_norm: cuit.length === 11 ? cuit : null, origen: 'manual' });
+  if (error) return alert('No se pudo crear: ' + error.message);
+  await cargarCatalogosCarga(true);
+  renderOrigenPago('proveedores');
+  document.getElementById('f-orig-prov').value = nombre.trim();
+  elegirProveedor(nombre.trim());
+  toast('✓ Proveedor creado');
+}
+
+function elegirEmpleada(id) {
+  const e = (_cat_carga.empleadas || []).find(x => String(x.id) === String(id));
+  const cont = document.getElementById('f-orig-emp-prestamo');
+  if (!e) { if (cont) cont.innerHTML = ''; return; }
+  document.getElementById('f-destinatario').value = e.nombre;
+  const prests = (_cat_carga.prestamos || []).filter(p => String(p.empleado_id) === String(id));
+  if (!prests.length) {
+    if (cont) cont.innerHTML = '';
+    _setVal('f-concepto', 'ADELANTO SUELDO ' + _mesActual() + ' ' + e.nombre.toUpperCase());
+    return;
+  }
+  cont.innerHTML = `<label style="display:block;margin-top:8px;"><div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600;margin-bottom:3px;">Préstamo (RRHH)</div>
+    <select style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;box-sizing:border-box;" onchange="elegirPrestamo(this.value)">
+    <option value="">Sin préstamo (adelanto u otro pago)</option>
+    ${prests.map(p => `<option value="${p.prestamo_id}">Cuota ${p.cuota_numero} de ${p.cuotas_totales} — $${Math.round(p.monto).toLocaleString('es-AR')} (${escHtml(p.mes_descuento || '')})</option>`).join('')}
+    </select></label>`;
+}
+
+function elegirPrestamo(pid) {
+  const p = (_cat_carga.prestamos || []).find(x => String(x.prestamo_id) === String(pid));
+  const emp = p ? (_cat_carga.empleadas || []).find(e => String(e.id) === String(p.empleado_id)) : null;
+  if (!p || !emp) return;
+  document.getElementById('f-concepto').value =
+    'DEV PRESTAMO ' + emp.nombre.toUpperCase() + ' CUOTA ' + p.cuota_numero + ' DE ' + p.cuotas_totales;
+  document.getElementById('f-importe').value = -Math.abs(p.monto);
+}
+
+async function elegirSocio(v) {
+  if (v === '__nuevo__') {
+    const nombre = prompt('Nombre del socio:');
+    if (!nombre) { document.getElementById('f-orig-soc').value = ''; return; }
+    const cuit = (prompt('CUIT (opcional):') || '').replace(/\D/g, '');
+    const { data, error } = await sb.from('tesoreria_socios')
+      .insert({ nombre: nombre.trim(), cuit_norm: cuit.length === 11 ? cuit : null, created_by: session.email }).select().single();
+    if (error) return alert('No se pudo crear: ' + error.message);
+    await cargarCatalogosCarga(true);
+    renderOrigenPago('socios');
+    document.getElementById('f-orig-soc').value = data.id;
+    elegirSocio(String(data.id));
+    return;
+  }
+  const s = (_cat_carga.socios || []).find(x => String(x.id) === String(v));
+  if (!s) return;
+  document.getElementById('f-destinatario').value = s.nombre;
+  _setVal('f-concepto', s.nombre + ' — retiro/pago socio ' + _mesActual());
+}
+
 
 async function guardarPago(id) {
   const concepto = document.getElementById('f-concepto').value.trim();
@@ -2333,6 +2486,10 @@ async function guardarPago(id) {
   if (importe === null || isNaN(importe)) return alert('Falta el importe');
   if (!fecha_vencimiento) return alert('Falta la fecha de vencimiento');
   const payload = { concepto, destinatario, importe, moneda, fecha_vencimiento, categoria, medio_pago, local, recurrente, frecuencia, notas };
+  if (categoria === 'proveedores' && _origenSel.proveedor_codigo) {
+    payload.proveedor_codigo = _origenSel.proveedor_codigo;
+    payload.proveedor_cuit = _origenSel.proveedor_cuit || null;
+  }
   try {
     if (id) {
       const { error } = await sb.from('tesoreria_pagos_pendientes').update(payload).eq('id', id);
