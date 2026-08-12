@@ -2410,7 +2410,7 @@ async function cargarCatalogosCarga(force) {
   const [imp, soc, prov, emp] = await Promise.all([
     sb.from('tesoreria_impuestos').select('*').eq('activo', true).order('nombre'),
     sb.from('tesoreria_socios').select('*').eq('activo', true).order('nombre'),
-    sb.from('tesoreria_proveedores').select('codigo,nombre,cuit_norm').eq('activo', true).order('nombre'),
+    sb.from('tesoreria_proveedores').select('codigo,nombre,cuit_norm,origen').eq('activo', true).order('nombre'),
     sb.rpc('tesoreria_empleadas_pagos'),
   ]);
   _cat_carga = {
@@ -2434,11 +2434,15 @@ function renderOrigenPago(cat) {
     wrap.innerHTML = `<label>${lbl('Impuesto')}<select id="f-orig-imp" style="${st}" onchange="elegirImpuesto(this.value)">
       <option value="">— Elegir del listado —</option>
       ${c.impuestos.map(i => `<option value="${i.id}">${escHtml(i.nombre)}${i.ente ? ' · ' + escHtml(i.ente) : ''}</option>`).join('')}
-      <option value="__nuevo__">➕ Nuevo impuesto…</option></select></label>`;
+      <option value="__nuevo__">➕ Nuevo impuesto…</option>
+      <option value="__quitar__">🗑 Quitar uno del listado…</option></select></label>`;
   } else if (cat === 'proveedores') {
     wrap.innerHTML = `<label>${lbl('Proveedor (Dragonfish)')}<input id="f-orig-prov" list="dl-provs" placeholder="Escribí para buscar…" style="${st}" onchange="elegirProveedor(this.value)">
       <datalist id="dl-provs">${c.provs.map(pv => `<option value="${escHtml(pv.nombre)}${pv.cuit_norm ? ' · ' + pv.cuit_norm : ''}">`).join('')}</datalist></label>
-      <button type="button" class="btn-secondary" style="font-size:12px;padding:6px 10px;justify-self:start;" onclick="nuevoProveedorManual()">➕ Proveedor nuevo (no está en Dragonfish)</button>`;
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+      <button type="button" class="btn-secondary" style="font-size:12px;padding:6px 10px;" onclick="nuevoProveedorManual()">➕ Proveedor nuevo (no está en Dragonfish)</button>
+      <button type="button" class="btn-secondary" style="font-size:12px;padding:6px 10px;" onclick="quitarDeCatalogo('proveedores')">🗑 Quitar manual</button>
+      </div>`;
   } else if (cat === 'empleados') {
     wrap.innerHTML = `<label>${lbl('Empleada')}<select id="f-orig-emp" style="${st}" onchange="elegirEmpleada(this.value)">
       <option value="">— Elegir —</option>
@@ -2448,13 +2452,15 @@ function renderOrigenPago(cat) {
     wrap.innerHTML = `<label>${lbl('Socio')}<select id="f-orig-soc" style="${st}" onchange="elegirSocio(this.value)">
       <option value="">— Elegir —</option>
       ${c.socios.map(s => `<option value="${s.id}">${escHtml(s.nombre)}</option>`).join('')}
-      <option value="__nuevo__">➕ Nuevo socio…</option></select></label>`;
+      <option value="__nuevo__">➕ Nuevo socio…</option>
+      <option value="__quitar__">🗑 Quitar uno del listado…</option></select></label>`;
   } else {
     wrap.innerHTML = '';
   }
 }
 
 async function elegirImpuesto(v) {
+  if (v === '__quitar__') { quitarDeCatalogo('impuestos'); return; }
   if (v === '__nuevo__') {
     const nombre = prompt('Nombre del impuesto (ej: "Tasa Seguridad e Higiene"):');
     if (!nombre) { document.getElementById('f-orig-imp').value = ''; return; }
@@ -2533,6 +2539,7 @@ function elegirPrestamo(pid) {
 }
 
 async function elegirSocio(v) {
+  if (v === '__quitar__') { quitarDeCatalogo('socios'); return; }
   if (v === '__nuevo__') {
     const nombre = prompt('Nombre del socio:');
     if (!nombre) { document.getElementById('f-orig-soc').value = ''; return; }
@@ -2552,6 +2559,41 @@ async function elegirSocio(v) {
   _setVal('f-concepto', s.nombre + ' — retiro/pago socio ' + _mesActual());
 }
 
+
+// ── Quitar ítems de catálogo (baja lógica: activo=false, la historia no se toca) ──
+function quitarDeCatalogo(tipo) {
+  const c = _cat_carga || {};
+  const items = tipo === 'impuestos' ? (c.impuestos || [])
+    : tipo === 'socios' ? (c.socios || [])
+    : (c.provs || []).filter(p => p.origen === 'manual');
+  const wrap = document.getElementById('f-origen-wrap');
+  if (!wrap) return;
+  wrap.innerHTML = `<div style="border:1px solid var(--border);border-radius:8px;padding:10px;background:#fffbeb;">
+    <div style="font-size:12px;font-weight:600;margin-bottom:6px;">🗑 Quitar del listado — los pagos ya cargados NO se tocan</div>
+    ${items.length ? items.map(i => `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid #fef3c7;">
+      <span style="font-size:13px;">${escHtml(i.nombre)}</span>
+      <button type="button" onclick="desactivarCatalogo('${tipo}', '${tipo === 'proveedores' ? i.codigo : i.id}')"
+              style="background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;border-radius:6px;padding:3px 10px;cursor:pointer;font-size:12px;">Quitar</button>
+    </div>`).join('') : '<div style="font-size:12px;color:#92400e;">No hay ítems para quitar acá.</div>'}
+    <button type="button" class="btn-secondary" style="margin-top:8px;font-size:12px;padding:6px 10px;" onclick="renderOrigenPago('${tipo}')">← Volver al listado</button>
+  </div>`;
+}
+async function desactivarCatalogo(tipo, id) {
+  const item = tipo === 'proveedores'
+    ? (_cat_carga.provs || []).find(p => p.codigo === id)
+    : (tipo === 'impuestos' ? _cat_carga.impuestos : _cat_carga.socios).find(x => String(x.id) === String(id));
+  if (!confirm(`¿Quitar "${item ? item.nombre : ''}" del listado?`)) return;
+  const tabla = tipo === 'impuestos' ? 'tesoreria_impuestos'
+    : tipo === 'socios' ? 'tesoreria_socios' : 'tesoreria_proveedores';
+  const q = tipo === 'proveedores'
+    ? sb.from(tabla).update({ activo: false }).eq('codigo', id).eq('origen', 'manual')
+    : sb.from(tabla).update({ activo: false }).eq('id', id);
+  const { error } = await q;
+  if (error) return alert('No se pudo quitar: ' + error.message);
+  await cargarCatalogosCarga(true);
+  toast('✓ Quitado del listado');
+  quitarDeCatalogo(tipo);
+}
 
 async function guardarPago(id) {
   const concepto = document.getElementById('f-concepto').value.trim();
