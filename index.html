@@ -2210,10 +2210,8 @@ async function renderPagosPendientes() {
       </select>
       <select onchange="_filtroLocal=this.value;renderPagosPendientes();" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
         <option value="">Todos los locales</option>
-        <option value="general" ${_filtroLocal==='general'?'selected':''}>General</option>
-        <option value="alcorta" ${_filtroLocal==='alcorta'?'selected':''}>Alcorta</option>
-        <option value="unicenter" ${_filtroLocal==='unicenter'?'selected':''}>Unicenter</option>
-        <option value="oficina" ${_filtroLocal==='oficina'?'selected':''}>Oficina</option>
+        ${[...new Set(['general','alcorta','unicenter','oficina', ..._pagosPendientesCache.map(p => p.local).filter(Boolean)])].map(l =>
+          `<option value="${escHtml(l)}" ${_filtroLocal===l?'selected':''}>${escHtml(l.charAt(0).toUpperCase()+l.slice(1))}</option>`).join('')}
       </select>
       <select onchange="_filtroEstado=this.value;renderPagosPendientes();" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
         <option value="pendientes" ${_filtroEstado==='pendientes'?'selected':''}>Pendientes</option>
@@ -2366,7 +2364,7 @@ function abrirFormPago(existente, precarga) {
         <input id="f-fecha" type="date" value="${fechaDefault}" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;box-sizing:border-box;"></label>
 
       <label><div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600;margin-bottom:3px;">Local</div>
-        <select id="f-local" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;box-sizing:border-box;">
+        <select id="f-local" onchange="elegirLocalPago(this.value)" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;box-sizing:border-box;">
           <option value="general" ${p.local==='general'||!p.local?'selected':''}>General</option>
           <option value="alcorta" ${p.local==='alcorta'?'selected':''}>Alcorta</option>
           <option value="unicenter" ${p.local==='unicenter'?'selected':''}>Unicenter</option>
@@ -2398,7 +2396,10 @@ function abrirFormPago(existente, precarga) {
     </div>
   </div>`;
   document.body.appendChild(wrap);
-  cargarCatalogosCarga().then(() => renderOrigenPago(document.getElementById('f-categoria').value)).catch(() => {});
+  cargarCatalogosCarga().then(() => {
+    renderOrigenPago(document.getElementById('f-categoria').value);
+    poblarLocalesSelect(p.local || 'general');
+  }).catch(() => {});
 }
 
 // ═══════════ Carga estructurada por categoría (11-ago-2026) ═══════════
@@ -2407,15 +2408,17 @@ let _origenSel = {};        // proveedor elegido {proveedor_codigo, proveedor_cu
 
 async function cargarCatalogosCarga(force) {
   if (_cat_carga && !force) return _cat_carga;
-  const [imp, soc, prov, emp] = await Promise.all([
+  const [imp, soc, prov, emp, locs] = await Promise.all([
     sb.from('tesoreria_impuestos').select('*').eq('activo', true).order('nombre'),
     sb.from('tesoreria_socios').select('*').eq('activo', true).order('nombre'),
     sb.from('tesoreria_proveedores').select('codigo,nombre,cuit_norm,origen').eq('activo', true).order('nombre'),
     sb.rpc('tesoreria_empleadas_pagos'),
+    sb.from('tesoreria_locales_pago').select('*').eq('activo', true).order('core', { ascending: false }).order('nombre'),
   ]);
   _cat_carga = {
     impuestos: imp.data || [], socios: soc.data || [], provs: prov.data || [],
     empleadas: emp.data?.empleadas || [], prestamos: emp.data?.prestamos || [],
+    locales: locs.data || [],
   };
   return _cat_carga;
 }
@@ -2565,6 +2568,7 @@ function quitarDeCatalogo(tipo) {
   const c = _cat_carga || {};
   const items = tipo === 'impuestos' ? (c.impuestos || [])
     : tipo === 'socios' ? (c.socios || [])
+    : tipo === 'locales' ? (c.locales || []).filter(l => !l.core)
     : (c.provs || []).filter(p => p.origen === 'manual');
   const wrap = document.getElementById('f-origen-wrap');
   if (!wrap) return;
@@ -2572,7 +2576,7 @@ function quitarDeCatalogo(tipo) {
     <div style="font-size:12px;font-weight:600;margin-bottom:6px;">🗑 Quitar del listado — los pagos ya cargados NO se tocan</div>
     ${items.length ? items.map(i => `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid #fef3c7;">
       <span style="font-size:13px;">${escHtml(i.nombre)}</span>
-      <button type="button" onclick="desactivarCatalogo('${tipo}', '${tipo === 'proveedores' ? i.codigo : i.id}')"
+      <button type="button" onclick="desactivarCatalogo('${tipo}', '${tipo === 'proveedores' ? i.codigo : (tipo === 'locales' ? i.clave : i.id)}')"
               style="background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;border-radius:6px;padding:3px 10px;cursor:pointer;font-size:12px;">Quitar</button>
     </div>`).join('') : '<div style="font-size:12px;color:#92400e;">No hay ítems para quitar acá.</div>'}
     <button type="button" class="btn-secondary" style="margin-top:8px;font-size:12px;padding:6px 10px;" onclick="renderOrigenPago('${tipo}')">← Volver al listado</button>
@@ -2581,18 +2585,51 @@ function quitarDeCatalogo(tipo) {
 async function desactivarCatalogo(tipo, id) {
   const item = tipo === 'proveedores'
     ? (_cat_carga.provs || []).find(p => p.codigo === id)
+    : tipo === 'locales'
+    ? (_cat_carga.locales || []).find(l => l.clave === id)
     : (tipo === 'impuestos' ? _cat_carga.impuestos : _cat_carga.socios).find(x => String(x.id) === String(id));
   if (!confirm(`¿Quitar "${item ? item.nombre : ''}" del listado?`)) return;
   const tabla = tipo === 'impuestos' ? 'tesoreria_impuestos'
-    : tipo === 'socios' ? 'tesoreria_socios' : 'tesoreria_proveedores';
+    : tipo === 'socios' ? 'tesoreria_socios'
+    : tipo === 'locales' ? 'tesoreria_locales_pago' : 'tesoreria_proveedores';
   const q = tipo === 'proveedores'
     ? sb.from(tabla).update({ activo: false }).eq('codigo', id).eq('origen', 'manual')
+    : tipo === 'locales'
+    ? sb.from(tabla).update({ activo: false }).eq('clave', id)
     : sb.from(tabla).update({ activo: false }).eq('id', id);
   const { error } = await q;
   if (error) return alert('No se pudo quitar: ' + error.message);
   await cargarCatalogosCarga(true);
   toast('✓ Quitado del listado');
   quitarDeCatalogo(tipo);
+  if (tipo === 'locales') poblarLocalesSelect('general');
+}
+
+// ── Locales de pago: catálogo editable (core fijos + etiquetas propias) ──
+function poblarLocalesSelect(seleccionado) {
+  const sel = document.getElementById('f-local');
+  const locs = _cat_carga?.locales;
+  if (!sel || !locs || !locs.length) return;
+  sel.innerHTML = locs.map(l =>
+    `<option value="${escHtml(l.clave)}" ${l.clave === seleccionado ? 'selected' : ''}>${escHtml(l.nombre)}</option>`).join('')
+    + '<option value="__nuevo__">➕ Nuevo local/etiqueta…</option>'
+    + '<option value="__quitar__">🗑 Quitar uno…</option>';
+}
+async function elegirLocalPago(v) {
+  if (v === '__nuevo__') {
+    const nombre = prompt('Nombre del local/etiqueta nuevo (ej: "Libertador"):');
+    if (!nombre) { poblarLocalesSelect('general'); return; }
+    const clave = nombre.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+    if (!clave) { poblarLocalesSelect('general'); return; }
+    const { error } = await sb.from('tesoreria_locales_pago')
+      .insert({ clave, nombre: nombre.trim(), created_by: session.email });
+    if (error) { alert('No se pudo crear: ' + error.message); poblarLocalesSelect('general'); return; }
+    await cargarCatalogosCarga(true);
+    poblarLocalesSelect(clave);
+    toast('✓ Local creado');
+    return;
+  }
+  if (v === '__quitar__') { quitarDeCatalogo('locales'); poblarLocalesSelect('general'); return; }
 }
 
 async function guardarPago(id) {
@@ -2604,6 +2641,7 @@ async function guardarPago(id) {
   const categoria = document.getElementById('f-categoria').value;
   const medio_pago = document.getElementById('f-medio').value;
   const local = document.getElementById('f-local').value;
+  if (local.startsWith('__')) return alert('Elegí un local válido');
   const recurrente = document.getElementById('f-recurrente').checked;
   const frecuencia = recurrente ? document.getElementById('f-frecuencia').value : null;
   const recurrente_veces = recurrente ? (parseInt(document.getElementById('f-rec-veces').value) || null) : null;
