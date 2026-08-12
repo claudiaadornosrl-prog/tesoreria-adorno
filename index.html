@@ -978,7 +978,14 @@ async function guardarNotaMov(movId, texto) {
   if (error) { toast('Error: ' + error.message, true); return; }
   toast(nota ? '✓ Nota guardada' : '✓ Nota borrada');
   document.getElementById('modal-nota')?.remove();
-  renderMovimientos();
+  // (12-ago) actualizar la fila en el lugar y re-pintar SOLO la lista,
+  // conservando la posición de scroll (antes re-renderizaba toda la
+  // pestaña y te mandaba arriba de todo).
+  const m = _movsCache.find(x => x.id === movId);
+  if (m) m.nota = nota;
+  const y = window.scrollY;
+  filtrarMovsLocal();
+  window.scrollTo(0, y);
 }
 
 // ═══════════════════════════════════════════════════════════════════════
