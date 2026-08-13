@@ -2408,15 +2408,29 @@ let _origenSel = {};        // proveedor elegido {proveedor_codigo, proveedor_cu
 
 async function cargarCatalogosCarga(force) {
   if (_cat_carga && !force) return _cat_carga;
+  // (13-ago) Proveedores paginado: PostgREST corta en 1.000 filas y hay 1.282
+  // — el datalist llegaba hasta la letra F.
+  const _todosProvs = async () => {
+    const out = [];
+    for (let desde = 0; ; desde += 1000) {
+      const { data, error } = await sb.from('tesoreria_proveedores')
+        .select('codigo,nombre,cuit_norm,origen').eq('activo', true)
+        .order('nombre').range(desde, desde + 999);
+      if (error || !data || !data.length) break;
+      out.push(...data);
+      if (data.length < 1000) break;
+    }
+    return out;
+  };
   const [imp, soc, prov, emp, locs] = await Promise.all([
     sb.from('tesoreria_impuestos').select('*').eq('activo', true).order('nombre'),
     sb.from('tesoreria_socios').select('*').eq('activo', true).order('nombre'),
-    sb.from('tesoreria_proveedores').select('codigo,nombre,cuit_norm,origen').eq('activo', true).order('nombre'),
+    _todosProvs(),
     sb.rpc('tesoreria_empleadas_pagos'),
     sb.from('tesoreria_locales_pago').select('*').eq('activo', true).order('core', { ascending: false }).order('nombre'),
   ]);
   _cat_carga = {
-    impuestos: imp.data || [], socios: soc.data || [], provs: prov.data || [],
+    impuestos: imp.data || [], socios: soc.data || [], provs: prov || [],
     empleadas: emp.data?.empleadas || [], prestamos: emp.data?.prestamos || [],
     locales: locs.data || [],
   };
