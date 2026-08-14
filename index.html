@@ -2125,7 +2125,7 @@ const URGENCIA_CFG = {
   futuro:      { label: '⏳ Futuro',      color: '#475569', bg: '#f8fafc' },
 };
 let _pagosPendientesCache = [];
-let _filtroCategoria = '', _filtroLocal = '', _filtroEstado = 'pendientes', _filtroTexto = '';
+let _filtroCategoria = '', _filtroLocal = '', _filtroEstado = 'pendientes', _filtroTexto = '', _ordenPendientes = 'venc_asc';
 
 async function refrescarBadgePagosPendientes() {
   try {
@@ -2179,7 +2179,18 @@ async function renderPagosPendientes() {
   const totalPos = pendientes.filter(p => +p.importe > 0).reduce((s,p) => s + +p.importe, 0);
   const totalNeg = pendientes.filter(p => +p.importe < 0).reduce((s,p) => s + +p.importe, 0);
   const grupos = { vencido:[], hoy:[], esta_semana:[], este_mes:[], futuro:[], pagado:[], cancelado:[] };
-  cacheFiltrado.forEach(p => { (grupos[p.estado_urgencia] || grupos.futuro).push(p); });
+  if (_ordenPendientes === 'venc_asc') {
+    cacheFiltrado.forEach(p => { (grupos[p.estado_urgencia] || grupos.futuro).push(p); });
+  } else {
+    // (14-ago) Orden personalizado: lista plana ordenada, sin grupos de urgencia
+    const ord = [...cacheFiltrado].sort((a, b) => {
+      if (_ordenPendientes === 'venc_desc') return b.fecha_vencimiento.localeCompare(a.fecha_vencimiento);
+      if (_ordenPendientes === 'importe_desc') return Math.abs(+b.importe) - Math.abs(+a.importe);
+      if (_ordenPendientes === 'importe_asc') return Math.abs(+a.importe) - Math.abs(+b.importe);
+      return (a.destinatario || a.concepto || '').localeCompare(b.destinatario || b.concepto || '', 'es');
+    });
+    grupos._orden = ord;
+  }
 
   cont.innerHTML = `<div style="padding:16px;">
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">
@@ -2218,13 +2229,22 @@ async function renderPagosPendientes() {
         <option value="pagados" ${_filtroEstado==='pagados'?'selected':''}>Solo pagados</option>
         <option value="todos" ${_filtroEstado==='todos'?'selected':''}>Mostrar todos</option>
       </select>
+      <select onchange="_ordenPendientes=this.value;renderPagosPendientes();" title="Ordenar filas" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
+        <option value="venc_asc" ${_ordenPendientes==='venc_asc'?'selected':''}>↕ Vencimiento ↑</option>
+        <option value="venc_desc" ${_ordenPendientes==='venc_desc'?'selected':''}>↕ Vencimiento ↓</option>
+        <option value="importe_desc" ${_ordenPendientes==='importe_desc'?'selected':''}>↕ Importe mayor</option>
+        <option value="importe_asc" ${_ordenPendientes==='importe_asc'?'selected':''}>↕ Importe menor</option>
+        <option value="proveedor" ${_ordenPendientes==='proveedor'?'selected':''}>↕ Proveedor A-Z</option>
+      </select>
       <div style="flex:1;"></div>
       <button class="btn-primary" style="width:auto;padding:8px 16px;font-size:13px;" onclick="abrirFormNuevoPago()">+ Nuevo pago</button>
     </div>
-    ${['vencido','hoy','esta_semana','este_mes','futuro','pagado','cancelado'].map(u => {
+    ${(grupos._orden ? ['_orden'] : ['vencido','hoy','esta_semana','este_mes','futuro','pagado','cancelado']).map(u => {
       const items = grupos[u] || [];
       if (!items.length) return '';
-      const cfg = URGENCIA_CFG[u] || { label: u.toUpperCase(), color: '#475569', bg: '#f8fafc' };
+      const cfg = u === '_orden'
+        ? { label: '📋 Ordenado', color: '#475569', bg: '#f8fafc' }
+        : (URGENCIA_CFG[u] || { label: u.toUpperCase(), color: '#475569', bg: '#f8fafc' });
       const subtotal = items.filter(p => ['pendiente','por_confirmar'].includes(p.estado)).reduce((s,p) => s + +p.importe, 0);
       return `<div style="margin-bottom:14px;">
         <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:${cfg.bg};border-left:4px solid ${cfg.color};border-radius:6px;margin-bottom:6px;">
