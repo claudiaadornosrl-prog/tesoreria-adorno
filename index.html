@@ -2349,7 +2349,7 @@ function abrirFormPago(existente, precarga) {
   wrap.id = 'modal-pago';
   wrap.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,0.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
   wrap.onclick = (e) => { if (e.target === wrap) wrap.remove(); };
-  const fechaDefault = p.fecha_vencimiento || new Date(Date.now() + 30*86400000).toISOString().slice(0,10);
+  const fechaDefault = p.fecha_vencimiento || new Date(Date.now() + 1*86400000).toISOString().slice(0,10);  // (18-ago) default: mañana
   wrap.innerHTML = `<div style="background:#fff;border-radius:12px;max-width:540px;width:100%;max-height:90vh;overflow:auto;padding:22px;">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
       <h3 style="margin:0;font-size:18px;">${esEdit ? '✏️ Editar pago' : '+ Nuevo pago pendiente'}</h3>
