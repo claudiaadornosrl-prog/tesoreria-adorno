@@ -2146,6 +2146,14 @@ function fmtMoneda(n, moneda) {
   return s + Number(n || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+// (19-ago) Refresco tras una acción (editar/pagar/cancelar/confirmar):
+// re-renderiza la lista pero deja el scroll exactamente donde estaba.
+async function refrescarPendientesEnLugar() {
+  const y = window.scrollY;
+  await renderPagosPendientes();
+  window.scrollTo(0, y);
+}
+
 async function renderPagosPendientes() {
   const cont = document.getElementById('contenido');
   cont.innerHTML = '<div class="empty"><div class="spinner"></div></div>';
@@ -2305,7 +2313,7 @@ async function confirmarMatchPago(id, movimientoId) {
     const { error } = await sb.rpc('marcar_pago_realizado', { p_id: id, p_movimiento_id: movimientoId, p_pagado_por: session.email || 'admin' });
     if (error) throw error;
     toast('✓ Confirmado como pagado');
-    renderPagosPendientes(); refrescarBadgePagosPendientes();
+    refrescarPendientesEnLugar(); refrescarBadgePagosPendientes();
   } catch (e) { alert('Error: ' + e.message); }
 }
 async function rechazarMatchPago(id) {
@@ -2314,7 +2322,7 @@ async function rechazarMatchPago(id) {
       .update({ estado: 'pendiente', movimiento_id: null }).eq('id', id);
     if (error) throw error;
     toast('Vuelve a Pendientes');
-    renderPagosPendientes(); refrescarBadgePagosPendientes();
+    refrescarPendientesEnLugar(); refrescarBadgePagosPendientes();
   } catch (e) { alert('Error: ' + e.message); }
 }
 
@@ -2324,7 +2332,7 @@ async function marcarComoPagado(id) {
     const { data, error } = await sb.rpc('marcar_pago_realizado', { p_id: id, p_pagado_por: session.email || 'admin' });
     if (error) throw error;
     toast(data?.siguiente_creado_id ? '✓ Pagado · siguiente recurrente creado' : '✓ Pagado');
-    renderPagosPendientes(); refrescarBadgePagosPendientes();
+    refrescarPendientesEnLugar(); refrescarBadgePagosPendientes();
   } catch (e) { alert('Error: ' + e.message); }
 }
 async function cancelarPago(id) {
@@ -2332,7 +2340,7 @@ async function cancelarPago(id) {
   try {
     const { error } = await sb.from('tesoreria_pagos_pendientes').update({ estado: 'cancelado' }).eq('id', id);
     if (error) throw error;
-    toast('Cancelado'); renderPagosPendientes();
+    toast('Cancelado'); refrescarPendientesEnLugar();
   } catch (e) { alert('Error: ' + e.message); }
 }
 function abrirFormNuevoPago(precarga) { abrirFormPago(null, precarga); }
@@ -2700,7 +2708,7 @@ async function guardarPago(id) {
       toast('✓ Creado');
     }
     document.getElementById('modal-pago').remove();
-    renderPagosPendientes(); refrescarBadgePagosPendientes();
+    refrescarPendientesEnLugar(); refrescarBadgePagosPendientes();
   } catch (e) { alert('Error: ' + e.message); }
 }
 
