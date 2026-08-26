@@ -1355,9 +1355,12 @@ function renderListaMovimientos(movs, tenencias = []) {
               transferencia: 'transferencia', liquidacion: 'liquidación'
             }[m.origen] || m.origen;
             let firma = '';
+            const esDep = m.respaldo_tipo === 'deposito';
+            const rotulo = esDep ? 'Depósito' : 'Factura';
+            const destino = esDep ? 'Marisa' : 'administración';
             if (m.factura_path) {
-              firma = `<a href="${escHtml(m.factura_path)}" target="_blank" rel="noopener" class="chip" style="background:#e0e7ff;color:#3730a3;font-size:11px;font-weight:600;text-decoration:none;" title="${m.factura_enviada_at ? 'Factura enviada a administración el ' + new Date(m.factura_enviada_at).toLocaleDateString('es-AR') : 'Factura adjunta — pendiente de envío a administración'}">📎 Factura${m.factura_enviada_at ? ' ✓' : ''}</a>`;
-            } else if (m.respaldo_tipo === 'factura') {
+              firma = `<a href="${escHtml(m.factura_path)}" target="_blank" rel="noopener" class="chip" style="background:${esDep ? '#dcfce7;color:#166534' : '#e0e7ff;color:#3730a3'};font-size:11px;font-weight:600;text-decoration:none;" title="${m.factura_enviada_at ? rotulo + ' enviado a ' + destino + ' el ' + new Date(m.factura_enviada_at).toLocaleDateString('es-AR') : rotulo + ' adjunto — pendiente de envío a ' + destino}">${esDep ? '🏦' : '📎'} ${rotulo}${m.factura_enviada_at ? ' ✓' : ''}</a>`;
+            } else if (m.respaldo_tipo === 'factura' || esDep) {
               // Purgada del bucket a los 30 días del envío — el respaldo quedó
               // en el mail a administración y el archivero de Anita.
               firma = `<span class="chip" style="background:#f3f4f6;color:var(--muted);font-size:11px;font-weight:600;" title="La imagen se borró del sistema a los 30 días (enviada a administración el ${m.factura_enviada_at ? new Date(m.factura_enviada_at).toLocaleDateString('es-AR') : '—'}). El respaldo está en el archivero.">📎 Archivada</span>`;
@@ -1504,14 +1507,15 @@ function renderCargar() {
             <div style="display:flex;gap:8px;">
               <button type="button" id="resp-recibo" class="btn-secondary" style="flex:1;" onclick="setRespaldo('recibo')">🧾 Recibo firmado</button>
               <button type="button" id="resp-factura" class="btn-secondary" style="flex:1;" onclick="setRespaldo('factura')">🧺 Factura / ticket</button>
+              <button type="button" id="resp-deposito" class="btn-secondary" style="flex:1;" onclick="setRespaldo('deposito')">🏦 Depósito bancario</button>
             </div>
           </div>
           <div class="form-row full" id="row-factura" style="display:none;">
-            <label>Foto o PDF de la factura</label>
+            <label id="lbl-adjunto">Foto o PDF de la factura</label>
             <input type="file" id="f-factura" accept="image/*,application/pdf" capture="environment"
                    style="width:100%;padding:10px;border:2px dashed var(--border);border-radius:8px;background:#f9fafb;">
             <div style="font-size:11px;color:var(--muted);margin-top:4px;">
-              📬 La factura se envía automáticamente a administración para su contabilización.
+              <span id="aviso-adjunto">📬 La factura se envía automáticamente a administración para su contabilización.</span>
             </div>
           </div>
           ${esGerente ? `
@@ -1535,14 +1539,21 @@ let _tipoCarga = 'ingreso';
 let _respaldoCarga = 'recibo';
 
 function setRespaldo(r) {
+  // 3 respaldos posibles: recibo firmado (circuito de siempre), factura/ticket
+  // (va por mail a Analia) y deposito bancario (va por mail a Marisa).
   _respaldoCarga = r;
-  document.getElementById('resp-recibo')?.classList.toggle('activo', r === 'recibo');
-  document.getElementById('resp-factura')?.classList.toggle('activo', r === 'factura');
-  const rb = document.getElementById('resp-recibo'), fb = document.getElementById('resp-factura');
-  if (rb) rb.style.cssText = 'flex:1;' + (r === 'recibo' ? 'background:var(--primary);color:white;border-color:var(--primary);' : '');
-  if (fb) fb.style.cssText = 'flex:1;' + (r === 'factura' ? 'background:var(--primary);color:white;border-color:var(--primary);' : '');
+  [['resp-recibo','recibo'],['resp-factura','factura'],['resp-deposito','deposito']].forEach(([id,val]) => {
+    const b = document.getElementById(id);
+    if (b) b.style.cssText = 'flex:1;' + (r === val ? 'background:var(--primary);color:white;border-color:var(--primary);' : '');
+  });
   const rf = document.getElementById('row-factura');
-  if (rf) rf.style.display = r === 'factura' ? '' : 'none';
+  const conAdjunto = (r === 'factura' || r === 'deposito');
+  if (rf) rf.style.display = conAdjunto ? '' : 'none';
+  const lbl = document.getElementById('lbl-adjunto'), av = document.getElementById('aviso-adjunto');
+  if (lbl) lbl.textContent = r === 'deposito' ? 'Foto o PDF del comprobante de depósito' : 'Foto o PDF de la factura';
+  if (av)  av.textContent  = r === 'deposito'
+      ? '📬 El comprobante se envía automáticamente a Marisa (administración).'
+      : '📬 La factura se envía automáticamente a administración para su contabilización.';
 }
 function setTipoCarga(tipo) {
   _tipoCarga = tipo;
@@ -1828,10 +1839,12 @@ async function guardarMovimiento() {
       // Respaldo por FACTURA adjunta (jul 2026): sube la foto/PDF al bucket,
       // no requiere firma, y el VPS se la manda por mail a administración
       // (claudiaadorno@claudiaadorno.com) para el circuito contable.
-      if (_tipoCarga === 'egreso' && _respaldoCarga === 'factura') {
+      if (_tipoCarga === 'egreso' && (_respaldoCarga === 'factura' || _respaldoCarga === 'deposito')) {
         const fInput = document.getElementById('f-factura');
         const file = fInput?.files?.[0];
-        if (!file) throw new Error('Adjuntá la foto o el PDF de la factura');
+        if (!file) throw new Error(_respaldoCarga === 'deposito'
+              ? 'Adjuntá la foto o el PDF del comprobante de depósito'
+              : 'Adjuntá la foto o el PDF de la factura');
         if (file.size > 15 * 1024 * 1024) throw new Error('El archivo es muy grande (máx 15 MB)');
         const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
         const path = `${cuentaId}/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
@@ -1839,7 +1852,7 @@ async function guardarMovimiento() {
           .upload(path, file, { contentType: file.type || 'image/jpeg' });
         if (upErr) throw new Error('No pude subir la factura: ' + upErr.message);
         const { data: pub } = sb.storage.from('tesoreria-facturas').getPublicUrl(path);
-        data.respaldo_tipo = 'factura';
+        data.respaldo_tipo = _respaldoCarga;   // 'factura' | 'deposito'
         data.factura_path = pub.publicUrl;
       } else if (!session.esOficina && _tipoCarga === 'egreso') {
         // Egreso de gerente/cajera con recibo: circuito de firma de siempre
@@ -1848,8 +1861,10 @@ async function guardarMovimiento() {
       }
       const { data: insMov, error } = await sb.from('tesoreria_movimientos').insert(data).select().single();
       if (error) throw error;
-      if (data.respaldo_tipo === 'factura') {
-        toast('✓ Cargado · la factura se envía a administración');
+      if (data.respaldo_tipo === 'factura' || data.respaldo_tipo === 'deposito') {
+        toast(data.respaldo_tipo === 'deposito'
+              ? '✓ Cargado · el comprobante se envía a Marisa'
+              : '✓ Cargado · la factura se envía a administración');
         cambiarTab('dashboard');
         cargar();
         return;
@@ -2758,7 +2773,7 @@ if ('serviceWorker' in navigator) {
   }, true);
 })();
 </script>
-<script src="manual.js?v=1"></script>
+<script src="manual.js?v=2"></script>
 <script>
 // (24-ago) Blindaje iOS: re-suscripcion automatica de push. iOS suelta la
 // suscripcion silenciosamente cada tanto; si el permiso sigue concedido y

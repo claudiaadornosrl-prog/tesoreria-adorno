@@ -48,7 +48,8 @@ function _manualSecciones() {
       desc: 'Ingresos y egresos de caja que no vienen solos del sistema.',
       pasos: [
         'Elegí tipo (ingreso/egreso), importe, categoría y descripción. Tu caja ya viene preseleccionada.',
-        'En egresos elegís el respaldo: 🧾 Recibo firmado (el circuito de siempre) o 🧺 Factura/ticket — le sacás foto desde el celu y no requiere firma.',
+        'En egresos elegís el respaldo: 🧾 Recibo firmado (el circuito de siempre), 🧺 Factura/ticket o 🏦 Depósito bancario — en los dos últimos le sacás foto desde el celu y no requiere firma.',
+        'La factura se envía sola a Anita para contabilizarla; el comprobante de depósito va a Marisa, que concilia los depósitos. Vos no tenés que mandar nada por mail.',
         'Las facturas viajan solas por mail a administración; no hace falta avisar.',
       ],
     });
