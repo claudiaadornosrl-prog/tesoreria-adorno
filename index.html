@@ -2359,6 +2359,15 @@ async function cancelarPago(id) {
   } catch (e) { alert('Error: ' + e.message); }
 }
 function abrirFormNuevoPago(precarga) { abrirFormPago(null, precarga); }
+async function volverAPendiente(id) {
+  const p = _pagosPendientesCache.find(x => x.id === id);
+  if (!confirm(`¿Volver a PENDIENTE este pago?\n\n${p ? p.concepto : '#' + id}\n\nSe deshace la marca de pagado y se desengancha del movimiento del banco. Queda registrado quién lo deshizo.`)) return;
+  const { error } = await sb.rpc('tesoreria_volver_a_pendiente', { p_id: id });
+  if (error) { alert('No se pudo: ' + error.message); return; }
+  document.getElementById('modal-pago')?.remove();
+  renderPagosPendientes();
+}
+
 function abrirEditarPago(id) {
   const p = _pagosPendientesCache.find(x => x.id === id);
   if (p) abrirFormPago(p, null);
@@ -2433,7 +2442,11 @@ function abrirFormPago(existente, precarga) {
       <label><div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600;margin-bottom:3px;">Notas</div>
         <textarea id="f-notas" rows="2" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;box-sizing:border-box;font-family:inherit;">${escHtml(p.notas||'')}</textarea></label>
     </div>
-    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px;">
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px;align-items:center;">
+      ${esEdit && ['pagado','por_confirmar'].includes(p.estado) ? `
+        <button class="btn-secondary" style="margin-right:auto;color:#b45309;border-color:#f59e0b;"
+          title="Deshacer el pago: vuelve a la lista de pendientes y se desengancha del movimiento del banco"
+          onclick="volverAPendiente(${p.id})">↩ Volver a pendiente</button>` : ''}
       <button class="btn-secondary" onclick="document.getElementById('modal-pago').remove();">Cancelar</button>
       <button class="btn-primary" style="width:auto;padding:10px 20px;" onclick="guardarPago(${esEdit?p.id:'null'})">${esEdit?'Actualizar':'Crear'}</button>
     </div>

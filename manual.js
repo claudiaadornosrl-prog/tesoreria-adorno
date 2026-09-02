@@ -73,6 +73,8 @@ function _manualSecciones() {
         'Con ➕ agregás un ítem nuevo al catálogo y con 🗑 lo das de baja. Lo mismo para los locales de pago.',
         'Recurrentes: si ponés cantidad de cuotas, se generan TODAS juntas con sus vencimientos ("CUOTA i DE n"); sin cantidad, se renueva sola al pagarla.',
         'Los préstamos y adelantos aceptados en RRHH entran solos: el desembolso y las cuotas por banco (solo capital) se crean automáticamente.',
+        '↩ Volver a pendiente: si algo figura pagado por error (el bot matcheó mal, o se tildó de más), abrilo con "Ver" y usá el botón "↩ Volver a pendiente" — se deshace la marca, se desengancha del movimiento del banco y queda registrado quién lo deshizo.',
+        'Ojo con proveedores de importe fijo mensual: si el bot no está seguro de que un pago viejo corresponda a la factura nueva, la deja "por confirmar" en vez de pagarla — confirmala vos.',
         'Cuando el bot del banco detecta la transferencia, el pago se marca PAGADO solo (matchea por CUIT, importe y fecha ±7 días). Si el sistema no está seguro, queda "por confirmar" y lo confirmás o rechazás vos.',
         'Filtros arriba: Pendientes / Solo pagados / Todos, y orden por vencimiento, importe o proveedor.',
         'Todos los días a las 8 le llega a JP el aviso de lo que vence hoy y el próximo día hábil.',
