@@ -2309,7 +2309,7 @@ function renderPagoItem(p) {
        <button class="btn-secondary" style="font-size:12px;padding:5px 10px;" onclick="event.stopPropagation();abrirEditarPago(${p.id})">✏️</button>
        <button class="btn-secondary" style="font-size:12px;padding:5px 10px;color:#dc2626;border-color:#fca5a5;" onclick="event.stopPropagation();cancelarPago(${p.id})">✗</button>`
     : `<button class="btn-secondary" style="font-size:12px;padding:5px 10px;" onclick="event.stopPropagation();abrirEditarPago(${p.id})">Ver</button>`;
-  return `<div style="display:grid;grid-template-columns:55px 1fr 130px auto;gap:10px;align-items:center;padding:10px 14px;border-bottom:1px solid #f3f4f6;cursor:pointer;" onclick="abrirEditarPago(${p.id})">
+  return `<div style="display:grid;grid-template-columns:88px 1fr 130px auto;gap:14px;align-items:center;padding:10px 14px;border-bottom:1px solid #f3f4f6;cursor:pointer;" onclick="abrirEditarPago(${p.id})">
     <div style="font-size:13px;font-weight:700;color:var(--text);text-align:center;line-height:1.2;">${fechaCorta}</div>
     <div style="min-width:0;">
       <div style="font-weight:600;font-size:13px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escHtml(p.concepto)}</div>
