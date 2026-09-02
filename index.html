@@ -244,7 +244,8 @@ const fmt$ = (n, moneda) => {
 const fmtFecha = d => {
   if (!d) return '—';
   const dt = new Date(d.length === 10 ? d + 'T12:00:00' : d);
-  return dt.toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: '2-digit' });
+  // (2-sep, pedido JP) SIEMPRE dd/mm/aaaa en las grillas del módulo
+  return dt.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
 };
 const escHtml = s => String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const hoyISO = () => new Date().toISOString().split('T')[0];
@@ -2287,7 +2288,7 @@ function renderPagoItem(p) {
   const esNegativo = +p.importe < 0;
   const colorImp = p.estado === 'pagado' ? '#16a34a' : (esNegativo ? '#16a34a' : '#dc2626');
   const labelImp = esNegativo ? '+' : '−';
-  const fechaCorta = new Date(p.fecha_vencimiento + 'T00:00').toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit'});
+  const fechaCorta = new Date(p.fecha_vencimiento + 'T00:00').toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'});
   const cat = CAT_LABELS[p.categoria] || p.categoria;
   const medio = MEDIO_LABELS[p.medio_pago] || p.medio_pago;
   const localBadge = p.local && p.local !== 'general'
