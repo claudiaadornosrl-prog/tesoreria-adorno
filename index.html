@@ -248,6 +248,29 @@ const fmtFecha = d => {
   return dt.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
 };
 const escHtml = s => String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+// (2-sep, pedido JP) Importes con separador de miles TAMBIÉN al cargar:
+// el campo es texto, al salir se formatea "1.234.567,89" y al entrar vuelve
+// a número editable. nmParse entiende es-AR (puntos miles, coma decimal),
+// el "1234.56" tipeado con punto decimal, y el signo negativo.
+const nmParse = v => {
+  v = String(v ?? '').trim().replace(/\$|\s/g, '');
+  if (!v || v === '-') return 0;
+  if (!v.includes(',')) {
+    const m = v.match(/^(-?\d+)\.(\d{1,2})$/);   // "1234.56" = decimal
+    if (m) return Number(v) || 0;
+  }
+  return Number(v.replace(/\./g, '').replace(',', '.')) || 0;
+};
+const nmShow = n => { n = Number(n) || 0; return n === 0 ? '' :
+  n.toLocaleString('es-AR', { maximumFractionDigits: 2 }); };
+function wireImporte(el) {
+  if (!el || el._wireImp) return;
+  el._wireImp = true;
+  el.addEventListener('focus', () => { const n = nmParse(el.value);
+    el.value = n ? String(n).replace('.', ',') : ''; el.select?.(); });
+  el.addEventListener('blur',  () => { el.value = nmShow(nmParse(el.value)); });
+  if (el.value) el.value = nmShow(nmParse(el.value));
+}
 const hoyISO = () => new Date().toISOString().split('T')[0];
 
 function toast(msg, err) {
@@ -1225,7 +1248,7 @@ function abrirEditarMov(id) {
       <h3 style="margin:0 0 4px;">✏️ Editar movimiento #${m.id}</h3>
       <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">${escHtml(m.cuenta_nombre || '')} · ${escHtml(m.origen || '')}</div>
       <div class="form-row"><label>Fecha</label><input type="date" id="em-fecha" value="${m.fecha}"></div>
-      <div class="form-row"><label>Importe (negativo = egreso)</label><input type="number" id="em-importe" step="any" value="${m.importe}"></div>
+      <div class="form-row"><label>Importe (negativo = egreso)</label><input type="text" inputmode="decimal" id="em-importe" value="${nmShow(m.importe)}" onfocus="wireImporte(this)"></div>
       <div class="form-row"><label>Categoría</label><select id="em-categoria"><option value="">— Sin categoría —</option>${cats}</select></div>
       <div class="form-row"><label>Descripción</label><textarea id="em-desc" style="min-height:60px;">${escHtml(m.descripcion || '')}</textarea></div>
       <div style="font-size:11px;color:var(--muted);margin:8px 0 12px;">
@@ -1244,7 +1267,7 @@ async function guardarEditMov(id) {
   try {
     const patch = {
       fecha: document.getElementById('em-fecha').value,
-      importe: parseFloat(document.getElementById('em-importe').value),
+      importe: nmParse(document.getElementById('em-importe').value),
       categoria_id: parseInt(document.getElementById('em-categoria').value) || null,
       descripcion: document.getElementById('em-desc').value.trim() || null,
     };
@@ -1490,7 +1513,7 @@ function renderCargar() {
       <div id="form-fields">
         <div class="form-grid">
           <div class="form-row"><label>Fecha</label><input type="date" id="f-fecha" value="${hoyISO()}"></div>
-          <div class="form-row"><label>Importe</label><input type="number" id="f-importe" step="any" placeholder="0"></div>
+          <div class="form-row"><label>Importe</label><input type="text" inputmode="decimal" id="f-importe" placeholder="0" onfocus="wireImporte(this)"></div>
           <div class="form-row"><label>${esGerente ? 'Caja' : 'Cuenta (de donde sale/entra)'}</label>
             <select id="f-cuenta" ${esGerente ? 'disabled style="background:#f9fafb;"' : ''}>${esGerente ? '' : '<option value="">— Elegir —</option>'}${cuentasOpt}</select>
           </div>
@@ -1806,7 +1829,7 @@ async function confirmarImportarPaste() {
 async function guardarMovimiento() {
   const btn = document.getElementById('btn-guardar');
   const fecha = document.getElementById('f-fecha').value;
-  const importeAbs = Math.abs(parseFloat(document.getElementById('f-importe').value || '0'));
+  const importeAbs = Math.abs(nmParse(document.getElementById('f-importe').value));
   const cuentaId = parseInt(document.getElementById('f-cuenta').value);
   const categoriaId = parseInt(document.getElementById('f-categoria').value) || null;
   const desc = document.getElementById('f-descripcion').value.trim() || null;
@@ -2406,7 +2429,8 @@ function abrirFormPago(existente, precarga) {
         <input id="f-destinatario" type="text" value="${escHtml(p.destinatario||'')}" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;box-sizing:border-box;"></label>
       <div style="display:grid;grid-template-columns:2fr 1fr;gap:10px;">
         <label><div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600;margin-bottom:3px;">Importe *</div>
-          <input id="f-importe" type="number" step="0.01" value="${p.importe||''}" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;box-sizing:border-box;"></label>
+          <input id="f-importe" type="text" inputmode="decimal" value="${nmShow(p.importe)}" onfocus="wireImporte(this)"
+                 style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;box-sizing:border-box;"></label>
         <label><div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600;margin-bottom:3px;">Moneda</div>
           <select id="f-moneda" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;box-sizing:border-box;">
             <option value="ARS" ${p.moneda==='ARS'||!p.moneda?'selected':''}>ARS</option>
@@ -2609,7 +2633,7 @@ function elegirPrestamo(pid) {
   if (!p || !emp) return;
   document.getElementById('f-concepto').value =
     'DEV PRESTAMO ' + emp.nombre.toUpperCase() + ' CUOTA ' + p.cuota_numero + ' DE ' + p.cuotas_totales;
-  document.getElementById('f-importe').value = -Math.abs(p.monto);
+  document.getElementById('f-importe').value = nmShow(-Math.abs(p.monto));
 }
 
 async function elegirSocio(v) {
@@ -2706,7 +2730,7 @@ async function elegirLocalPago(v) {
 async function guardarPago(id) {
   const concepto = document.getElementById('f-concepto').value.trim();
   const destinatario = document.getElementById('f-destinatario').value.trim() || null;
-  const importe = parseFloat(document.getElementById('f-importe').value);
+  const importe = nmParse(document.getElementById('f-importe').value);
   const moneda = document.getElementById('f-moneda').value;
   const fecha_vencimiento = document.getElementById('f-fecha').value;
   const categoria = document.getElementById('f-categoria').value;
