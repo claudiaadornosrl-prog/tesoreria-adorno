@@ -1523,8 +1523,8 @@ function renderCargar() {
           <div class="form-row" id="row-cuenta-destino" style="display:none;"><label>Cuenta destino</label>
             <select id="f-cuenta-destino"><option value="">— Elegir —</option>${cuentasOpt}</select>
           </div>
-          <div class="form-row full"><label>Descripción</label>
-            <textarea id="f-descripcion" placeholder="Detalle del movimiento (proveedor, comprobante, etc.)"></textarea>
+          <div class="form-row full"><label>Descripción / observación <span style="color:#dc2626">*</span></label>
+            <textarea id="f-descripcion" required placeholder="Obligatoria: qué es este movimiento (proveedor, comprobante, a quién se le pagó…)"></textarea>
           </div>
           <div class="form-row full" id="row-respaldo" style="display:none;">
             <label>Respaldo del egreso</label>
@@ -1834,6 +1834,11 @@ async function guardarMovimiento() {
   const categoriaId = parseInt(document.getElementById('f-categoria').value) || null;
   const desc = document.getElementById('f-descripcion').value.trim() || null;
   if (!fecha || !importeAbs || !cuentaId) { toast('Completá fecha, importe y cuenta', true); return; }
+  // (7-sep, JP) la observación es obligatoria como el resto de los campos
+  if (_tipoCarga !== 'transferencia' && (!desc || desc.length < 3)) {
+    toast('Completá la descripción / observación del movimiento', true);
+    document.getElementById('f-descripcion').focus(); return;
+  }
 
   btn.disabled = true; btn.textContent = 'Guardando…';
   try {
@@ -2811,7 +2816,7 @@ if ('serviceWorker' in navigator) {
   }, true);
 })();
 </script>
-<script src="manual.js?v=2"></script>
+<script src="manual.js?v=3"></script>
 <script>
 // (24-ago) Blindaje iOS: re-suscripcion automatica de push. iOS suelta la
 // suscripcion silenciosamente cada tanto; si el permiso sigue concedido y
