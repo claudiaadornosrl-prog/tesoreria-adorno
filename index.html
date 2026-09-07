@@ -1251,6 +1251,11 @@ function abrirEditarMov(id) {
       <div class="form-row"><label>Importe (negativo = egreso)</label><input type="text" inputmode="decimal" id="em-importe" value="${nmShow(m.importe)}" onfocus="wireImporte(this)"></div>
       <div class="form-row"><label>Categoría</label><select id="em-categoria"><option value="">— Sin categoría —</option>${cats}</select></div>
       <div class="form-row"><label>Descripción</label><textarea id="em-desc" style="min-height:60px;">${escHtml(m.descripcion || '')}</textarea></div>
+      ${(m.respaldo_tipo === 'factura' || m.respaldo_tipo === 'deposito') ? `
+      <div class="form-row"><label>${m.respaldo_tipo === 'deposito' ? 'Comprobante de depósito' : 'Factura'} ${m.respaldo_rechazado_at && !m.factura_path ? '<span style="color:#dc2626;">— RECHAZADO: ' + escHtml(m.respaldo_rechazo_motivo || '') + '</span>' : '(reemplazar)'}</label>
+        <input type="file" id="em-factura" accept="image/*,application/pdf" capture="environment">
+        <div style="font-size:11px;color:var(--muted);margin-top:4px;">${m.factura_path ? 'Si adjuntás uno nuevo, reemplaza al actual y vuelve a entrar al circuito.' : 'Adjuntá la foto o el PDF correcto.'}</div>
+      </div>` : ''}
       <div style="font-size:11px;color:var(--muted);margin:8px 0 12px;">
         ⚠ Cambiar el importe altera el saldo de la caja. Los movimientos del banco (scraper) se van a re-sincronizar en la próxima pasada si los editás.
       </div>
@@ -1272,6 +1277,20 @@ async function guardarEditMov(id) {
       descripcion: document.getElementById('em-desc').value.trim() || null,
     };
     if (!patch.fecha || isNaN(patch.importe) || patch.importe === 0) throw new Error('Fecha e importe válidos son obligatorios');
+    // (7-sep) re-adjuntar factura/depósito (caso "archivo rechazado")
+    const fIn = document.getElementById('em-factura');
+    const file = fIn?.files?.[0];
+    if (file) {
+      if (file.size > 15 * 1024 * 1024) throw new Error('El archivo es muy grande (máx 15 MB)');
+      const m0 = _movsCache.find(x => x.id === id) || {};
+      const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
+      const path = `${m0.cuenta_id || 0}/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
+      const { error: upErr } = await sb.storage.from('tesoreria-facturas').upload(path, file, { contentType: file.type || 'image/jpeg' });
+      if (upErr) throw new Error('No pude subir el archivo: ' + upErr.message);
+      const { data: pub } = sb.storage.from('tesoreria-facturas').getPublicUrl(path);
+      patch.factura_path = pub.publicUrl;   // el trigger resetea el circuito (se vuelve a subir al OneDrive)
+      patch.observacion_control = null; patch.observacion_control_por = null; patch.observacion_control_at = null;
+    }
     const { error } = await sb.from('tesoreria_movimientos').update(patch).eq('id', id);
     if (error) throw error;
     document.getElementById('editmov-bg')?.remove();
@@ -1382,8 +1401,13 @@ function renderListaMovimientos(movs, tenencias = []) {
             const esDep = m.respaldo_tipo === 'deposito';
             const rotulo = esDep ? 'Depósito' : 'Factura';
             const destino = esDep ? 'Marisa' : 'administración';
-            if (m.factura_path) {
-              firma = `<a href="${escHtml(m.factura_path)}" target="_blank" rel="noopener" class="chip" style="background:${esDep ? '#dcfce7;color:#166534' : '#e0e7ff;color:#3730a3'};font-size:11px;font-weight:600;text-decoration:none;" title="${m.factura_enviada_at ? rotulo + ' enviado a ' + destino + ' el ' + new Date(m.factura_enviada_at).toLocaleDateString('es-AR') : rotulo + ' adjunto — pendiente de envío a ' + destino}">${esDep ? '🏦' : '📎'} ${rotulo}${m.factura_enviada_at ? ' ✓' : ''}</a>`;
+            if (m.respaldo_rechazado_at && !m.factura_path) {
+              // (7-sep) administración rechazó el archivo: hay que volver a adjuntar
+              firma = `<span class="chip" style="background:#fee2e2;color:#991b1b;font-size:11px;font-weight:600;cursor:pointer;" title="${escHtml(m.respaldo_rechazo_motivo || '')} — tocá ✏️ y adjuntá el archivo correcto" onclick="event.stopPropagation();abrirEditarMov(${m.id})">↩ Volver a subir ${rotulo.toLowerCase()}</span>`;
+            } else if (m.factura_path) {
+              const etapa = m.archivo_item_id ? ((m.archivo_carpeta || '').split('/').filter(Boolean).pop() || '') : '';
+              const tit = m.archivo_item_id ? `${rotulo} en OneDrive: ${m.archivo_carpeta || ''} / ${m.archivo_nombre || ''}` : `${rotulo} adjunto — se sube al OneDrive en la próxima pasada (cada hora)`;
+              firma = `<a href="${escHtml(m.factura_path)}" target="_blank" rel="noopener" class="chip" style="background:${esDep ? '#dcfce7;color:#166534' : '#e0e7ff;color:#3730a3'};font-size:11px;font-weight:600;text-decoration:none;" title="${escHtml(tit)}">${esDep ? '🏦' : '📎'} ${rotulo}${m.archivo_item_id ? ' ✓' : ' ⏳'}${etapa && !esDep ? ' · ' + escHtml(etapa) : ''}</a>`;
             } else if (m.respaldo_tipo === 'factura' || esDep) {
               // Purgada del bucket a los 30 días del envío — el respaldo quedó
               // en el mail a administración y el archivero de Anita.
@@ -2816,7 +2840,7 @@ if ('serviceWorker' in navigator) {
   }, true);
 })();
 </script>
-<script src="manual.js?v=3"></script>
+<script src="manual.js?v=4"></script>
 <script>
 // (24-ago) Blindaje iOS: re-suscripcion automatica de push. iOS suelta la
 // suscripcion silenciosamente cada tanto; si el permiso sigue concedido y

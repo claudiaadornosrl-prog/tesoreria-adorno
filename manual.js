@@ -50,7 +50,8 @@ function _manualSecciones() {
         'Elegí tipo (ingreso/egreso), importe, categoría y descripción. Tu caja ya viene preseleccionada. La descripción/observación es OBLIGATORIA (qué es, a quién se le pagó, comprobante): sin ella no se guarda.',
         'En egresos elegís el respaldo: 🧾 Recibo firmado (el circuito de siempre), 🧺 Factura/ticket o 🏦 Depósito bancario — en los dos últimos le sacás foto desde el celu y no requiere firma.',
         'La factura se envía sola a Anita para contabilizarla; el comprobante de depósito va a Marisa, que concilia los depósitos. Vos no tenés que mandar nada por mail.',
-        'Las facturas viajan solas por mail a administración; no hace falta avisar.',
+        'Las facturas y los comprobantes de depósito se guardan solos en el OneDrive (cada hora): la factura entra a CONTABILIZAR / SIN CONTABILIZAR y el depósito al archivero del mes. No hace falta mandar nada por mail.',
+        'Si administración rechaza el archivo (foto equivocada, ilegible) te llega un aviso y el movimiento muestra "↩ Volver a subir": tocá ✏️, adjuntá el archivo correcto y listo.',
       ],
     });
     items.push({
