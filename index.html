@@ -585,6 +585,24 @@ function cerrarModalPostCarga() {
 // ═══════════════════════════════════════════════════════════════════════
 // PDF: comprobante de egreso con QR
 // ═══════════════════════════════════════════════════════════════════════
+// (9-sep) Tipografía institucional (URW Gothic = Avant Garde) para el logo del
+// comprobante, igual que en los recibos de RRHH. Vive en fonts/ del repo (y en
+// el cache del SW); si no se puede cargar, cae a helvetica bold como antes.
+let _fuenteAdornoOk = false;
+async function _loadFuenteAdorno(doc) {
+  try { if (doc.getFontList && doc.getFontList()['AdornoTitulo']) return true; } catch (_) {}
+  try {
+    const r = await fetch('./fonts/URWGothic-Book.ttf');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const bytes = new Uint8Array(await r.arrayBuffer());
+    let bin = ''; for (let i = 0; i < bytes.byteLength; i++) bin += String.fromCharCode(bytes[i]);
+    doc.addFileToVFS('AdornoTitulo.ttf', btoa(bin));
+    doc.addFont('AdornoTitulo.ttf', 'AdornoTitulo', 'normal');
+    _fuenteAdornoOk = true;
+    return true;
+  } catch (e) { console.warn('Fuente institucional no disponible, fallback helvetica', e); return false; }
+}
+
 async function generarPDFEgreso(movId) {
   // Cargar movimiento + cuenta + categoría
   const { data: m, error } = await sb.from('tesoreria_movimientos_view')
@@ -594,13 +612,14 @@ async function generarPDFEgreso(movId) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   const W = 210, H = 297, margen = 18;
+  const conFuente = await _loadFuenteAdorno(doc);
 
   // Header con logo de marca
   doc.setFillColor(245, 158, 11);  // amber
   doc.rect(0, 0, W, 4, 'F');
 
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(22);
+  if (conFuente) doc.setFont('AdornoTitulo', 'normal'); else doc.setFont('helvetica', 'bold');
+  doc.setFontSize(24);
   doc.setTextColor(180, 83, 9);
   doc.text('Claudia Adorno', margen, 22);
 

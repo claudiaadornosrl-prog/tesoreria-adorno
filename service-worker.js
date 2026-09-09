@@ -1,7 +1,7 @@
 // Service Worker — Tesorería Adorno
-const CACHE_VERSION = 'tesoreria-adorno-v80-comprobantes-todos';
+const CACHE_VERSION = 'tesoreria-adorno-v81-pdf-fuente';
 const CACHE_ASSETS = ['./', './index.html',
-  './manual.js', './manifest.webmanifest', './favicon.svg'];
+  './manual.js', './manifest.webmanifest', './favicon.svg', './fonts/URWGothic-Book.ttf'];
 
 self.addEventListener('install', e => {
   e.waitUntil(
