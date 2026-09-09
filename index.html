@@ -1539,7 +1539,7 @@ function renderCargar() {
           <div class="form-row"><label>Fecha</label><input type="date" id="f-fecha" value="${hoyISO()}"></div>
           <div class="form-row"><label>Importe</label><input type="text" inputmode="decimal" id="f-importe" placeholder="0" onfocus="wireImporte(this)"></div>
           <div class="form-row"><label>${esGerente ? 'Caja' : 'Cuenta (de donde sale/entra)'}</label>
-            <select id="f-cuenta" ${esGerente ? 'disabled style="background:#f9fafb;"' : ''}>${esGerente ? '' : '<option value="">— Elegir —</option>'}${cuentasOpt}</select>
+            <select id="f-cuenta" ${esGerente ? 'disabled style="background:#f9fafb;"' : ''} onchange="if (_tipoCarga === 'egreso' && (_respaldoCarga === 'recibo' || _respaldoCarga === 'ninguno')) setRespaldo(_defaultRespaldo())">${esGerente ? '' : '<option value="">— Elegir —</option>'}${cuentasOpt}</select>
           </div>
           <div class="form-row"><label>Categoría</label>
             <select id="f-categoria"><option value="">— Elegir —</option></select>
@@ -1556,6 +1556,7 @@ function renderCargar() {
               <button type="button" id="resp-recibo" class="btn-secondary" style="flex:1;" onclick="setRespaldo('recibo')">🧾 Recibo firmado</button>
               <button type="button" id="resp-factura" class="btn-secondary" style="flex:1;" onclick="setRespaldo('factura')">🧺 Factura / ticket</button>
               <button type="button" id="resp-deposito" class="btn-secondary" style="flex:1;" onclick="setRespaldo('deposito')">🏦 Depósito bancario</button>
+              ${session.esOficina ? `<button type="button" id="resp-ninguno" class="btn-secondary" style="flex:1;" onclick="setRespaldo('ninguno')" title="Egreso bancario / sin comprobante a firmar">∅ Sin respaldo</button>` : ''}
             </div>
           </div>
           <div class="form-row full" id="row-factura" style="display:none;">
@@ -1586,11 +1587,21 @@ function renderCargar() {
 let _tipoCarga = 'ingreso';
 let _respaldoCarga = 'recibo';
 
+// (9-sep) Default del respaldo según la cuenta: en una CAJA (local u oficina)
+// el egreso lleva recibo firmado, incluso si lo carga admin/Oficina; en banco/MP
+// el grupo Oficina carga sin respaldo. Las encargadas nunca ven "Sin respaldo".
+function _defaultRespaldo() {
+  if (!session.esOficina) return 'recibo';
+  const cid = parseInt(document.getElementById('f-cuenta')?.value);
+  const c = _cuentas.find(x => x.id === cid);
+  return (c && c.tipo === 'caja') ? 'recibo' : 'ninguno';
+}
 function setRespaldo(r) {
-  // 3 respaldos posibles: recibo firmado (circuito de siempre), factura/ticket
-  // (va por mail a Analia) y deposito bancario (va por mail a Marisa).
+  // 4 respaldos posibles: recibo firmado (circuito de siempre, PDF con QR),
+  // factura/ticket y depósito (van al OneDrive), y "ninguno" (solo Oficina).
+  if (r === 'ninguno' && !session.esOficina) r = 'recibo';
   _respaldoCarga = r;
-  [['resp-recibo','recibo'],['resp-factura','factura'],['resp-deposito','deposito']].forEach(([id,val]) => {
+  [['resp-recibo','recibo'],['resp-factura','factura'],['resp-deposito','deposito'],['resp-ninguno','ninguno']].forEach(([id,val]) => {
     const b = document.getElementById(id);
     if (b) b.style.cssText = 'flex:1;' + (r === val ? 'background:var(--primary);color:white;border-color:var(--primary);' : '');
   });
@@ -1628,7 +1639,7 @@ function setTipoCarga(tipo) {
   const rowResp = document.getElementById('row-respaldo');
   if (rowResp) {
     rowResp.style.display = tipo === 'egreso' ? '' : 'none';
-    if (tipo === 'egreso') setRespaldo('recibo');   // default recibo para todos; factura se elige a mano
+    if (tipo === 'egreso') setRespaldo(_defaultRespaldo());   // caja → recibo; banco (Oficina) → sin respaldo
     else { _respaldoCarga = 'recibo'; const rf = document.getElementById('row-factura'); if (rf) rf.style.display = 'none'; }
   }
   // Llenar categorías según tipo
@@ -1907,8 +1918,10 @@ async function guardarMovimiento() {
         const { data: pub } = sb.storage.from('tesoreria-facturas').getPublicUrl(path);
         data.respaldo_tipo = _respaldoCarga;   // 'factura' | 'deposito'
         data.factura_path = pub.publicUrl;
-      } else if (!session.esOficina && _tipoCarga === 'egreso') {
-        // Egreso de gerente/cajera con recibo: circuito de firma de siempre
+      } else if (_tipoCarga === 'egreso' && _respaldoCarga === 'recibo') {
+        // Egreso con recibo firmado: circuito de firma de siempre (PDF con QR).
+        // (9-sep) Vale también para admin/Oficina cuando eligen "Recibo firmado"
+        // — antes solo aplicaba a encargadas y el botón no hacía nada para JP.
         data.requiere_firma = true;
         data.respaldo_tipo = 'recibo';
       }
@@ -2840,7 +2853,7 @@ if ('serviceWorker' in navigator) {
   }, true);
 })();
 </script>
-<script src="manual.js?v=4"></script>
+<script src="manual.js?v=5"></script>
 <script>
 // (24-ago) Blindaje iOS: re-suscripcion automatica de push. iOS suelta la
 // suscripcion silenciosamente cada tanto; si el permiso sigue concedido y
