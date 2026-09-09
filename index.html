@@ -181,8 +181,8 @@ tbody tr:hover { background: var(--primary-light); }
       <span class="header-sub" id="hdr-sub"></span>
     </div>
     <div class="tabs" id="tabs">
-      <button class="active" data-tab="dashboard" onclick="cambiarTab('dashboard')">📊 Saldos</button>
-      <button data-tab="movimientos" onclick="cambiarTab('movimientos')">📋 Movimientos</button>
+      <button class="active" data-tab="dashboard" onclick="cambiarTab('dashboard')" id="tab-dashboard">📊 Saldos</button>
+      <button data-tab="movimientos" onclick="cambiarTab('movimientos')" id="tab-movimientos">📋 Movimientos</button>
       <button data-tab="cargar" onclick="cambiarTab('cargar')" id="tab-cargar">🧾 Recibos</button>
       <button data-tab="firma" onclick="cambiarTab('firma')" id="tab-firma" style="display:none;">📝 Pendientes firma <span id="badge-firma" style="display:none;background:#dc2626;color:white;border-radius:999px;padding:1px 7px;font-size:11px;margin-left:4px;font-weight:700;"></span></button>
       <button data-tab="pendientes" onclick="cambiarTab('pendientes')" id="tab-pendientes">💸 Pendientes <span id="badge-pendientes" style="display:none;background:#dc2626;color:white;border-radius:999px;padding:1px 7px;font-size:11px;margin-left:4px;font-weight:700;"></span></button>
@@ -337,14 +337,30 @@ async function initSession() {
     const _ADMIN_OF = ['marisaisabel07@yahoo.com.ar', 'rivera.analia.leon@gmail.com', 'administracion@claudiaadorno.com', 'claudiaadorno@claudiaadorno.com'];
     if (!_ADMIN_OF.includes((session.email || '').toLowerCase())) {
       const { data: cajLocal } = await sb.rpc('tesoreria_cajera_local');
-      if (!cajLocal) {
-        alert('Tu usuario no tiene acceso a Tesorería.');
-        await logout();
-        return false;
+      if (cajLocal) {
+        session.localGerencia = cajLocal;
+        session.esCajera = true;
+      } else {
+        // (9-sep, JP) Cualquier empleada entra, pero SOLO para subir una
+        // factura/ticket o un depósito de la caja de su local (sin recibos,
+        // sin saldos, sin movimientos). RPC tesoreria_mi_caja() → su caja.
+        const { data: caja } = await sb.rpc('tesoreria_mi_caja');
+        const mi = Array.isArray(caja) ? caja[0] : caja;
+        if (!mi) {
+          alert('Tu usuario no tiene acceso a Tesorería.');
+          await logout();
+          return false;
+        }
+        session.localGerencia = mi.local;
+        session.miCaja = mi;
+        session.soloComprobantes = true;
       }
-      session.localGerencia = cajLocal;
-      session.esCajera = true;
     }
+  }
+  // Usuario genérico de local (alcorta@/unicenter@, gerente sin legajo):
+  // también solo comprobantes en la pestaña de carga (los recibos exigen legajo).
+  if (u.rol === 'gerente' && !u.empleado_id && u.local_gerencia !== 'oficina') {
+    session.soloComprobantes = true;
   }
   enterApp();
   return true;
@@ -357,8 +373,11 @@ function enterApp() {
     session.rol === 'admin' ? 'Admin · ' + session.email :
     session.localGerencia === 'oficina' ? 'Oficina (admin)' :
     session.esCajera ? 'Cajera · ' + (session.localGerencia || '') :
+    (session.soloComprobantes && session.miCaja) ? 'Comprobantes · ' + (session.localGerencia || '') :
     'Encargada · ' + (session.localGerencia || '')
   );
+  // (9-sep) la pestaña de carga se llama según lo que puede hacer el usuario
+  document.getElementById('tab-cargar').textContent = session.soloComprobantes ? '🧺 Comprobantes' : '🧾 Recibos';
   // ── Visibilidad de tabs por rol ──
   // "Oficina" = admin, gerente de oficina, o Marisa/Analía (mismo par de
   // emails que tesoreria_es_admin_oficina() en la DB — mantener sincronizado).
@@ -388,11 +407,19 @@ function enterApp() {
     // Sí la manejan: encargadas (gerente con empleada) y cajeras.
     const generico = session.rol === 'gerente' && !session.empleado_id;
     const vendedora = session.rol === 'empleado' && !session.esCajera;
-    document.getElementById('tab-cargar').style.display =
-      (generico || vendedora) ? 'none' : '';
-    // (10-ago) fix: misma visibilidad para Pendientes firma
+    // (9-sep, JP) todos pueden CARGAR — genéricos y vendedoras solo
+    // factura/ticket o depósito (ver renderCargar); recibos = cajeras/encargadas.
+    document.getElementById('tab-cargar').style.display = '';
+    // (10-ago) Pendientes firma solo para quien hace recibos
     document.getElementById('tab-firma').style.display =
       (generico || vendedora) ? 'none' : '';
+    // Vendedora: NO ve saldos ni movimientos — entra directo a Comprobantes
+    document.getElementById('tab-dashboard').style.display = vendedora ? 'none' : '';
+    document.getElementById('tab-movimientos').style.display = vendedora ? 'none' : '';
+    if (vendedora) {
+      currentTab = 'cargar';
+      document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === 'cargar'));
+    }
   }
   cargar();
   actualizarBtnNotifs();
@@ -1295,7 +1322,7 @@ async function guardarEditMov(id) {
     if (error) throw error;
     document.getElementById('editmov-bg')?.remove();
     toast('✓ Movimiento actualizado');
-    renderMovimientos();
+    if (session.soloComprobantes) renderCargar(); else renderMovimientos();
   } catch (e) { toast('Error: ' + e.message, true); }
 }
 
@@ -1502,6 +1529,7 @@ function renderListaMovimientos(movs, tenencias = []) {
 // ═══════════════════════════════════════════════════════════════════════
 function renderCargar() {
   const cont = document.getElementById('contenido');
+  if (session.soloComprobantes) return renderCargarComprobante();
   // "Gerente restringido" = gerente de un local físico (no oficina ni admin)
   // "Gerente restringido" = cualquiera de local (encargada o cajera), no Oficina
   const esGerente = !session.esOficina;
@@ -1584,6 +1612,93 @@ function renderCargar() {
   setTipoCarga(esGerente ? 'egreso' : 'ingreso');
 }
 
+// (9-sep, JP) Formulario acotado para vendedoras y usuarios genéricos de local:
+// egreso de la caja de SU local con foto de factura/ticket o depósito. Sin
+// recibo firmado (eso queda para cajeras/encargadas), sin ingresos ni transfer.
+async function renderCargarComprobante() {
+  const cont = document.getElementById('contenido');
+  let caja = session.miCaja || _cuentas.find(c => c.tipo === 'caja' && c.local === session.localGerencia);
+  if (!caja) {
+    const { data } = await sb.rpc('tesoreria_mi_caja');
+    caja = Array.isArray(data) ? data[0] : data;
+    if (caja) session.miCaja = caja;
+  }
+  if (!caja) { cont.innerHTML = '<div class="empty">No encuentro la caja de tu local. Avisale a JP.</div>'; return; }
+  cont.innerHTML = `
+    <div class="card" style="max-width:680px;margin:0 auto;">
+      <h3 class="card-title" style="margin:0 0 6px;">🧺 Subir comprobante · ${escHtml(caja.nombre)}</h3>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">Pagaste algo con plata de la caja: cargá el importe y sacale foto a la factura/ticket, o al comprobante si fue un depósito bancario. Se descuenta de la caja y va a administración.</div>
+      <div id="form-fields">
+        <div class="form-grid">
+          <div class="form-row"><label>Fecha</label><input type="date" id="f-fecha" value="${hoyISO()}"></div>
+          <div class="form-row"><label>Importe</label><input type="text" inputmode="decimal" id="f-importe" placeholder="0" onfocus="wireImporte(this)"></div>
+          <input type="hidden" id="f-cuenta" value="${caja.id}">
+          <div class="form-row"><label>Categoría</label>
+            <select id="f-categoria"><option value="">— Elegir —</option></select>
+          </div>
+          <div class="form-row full"><label>Descripción / observación <span style="color:#dc2626">*</span></label>
+            <textarea id="f-descripcion" required placeholder="Obligatoria: qué se pagó, a quién, número de comprobante…"></textarea>
+          </div>
+          <div class="form-row full" id="row-respaldo">
+            <label>Tipo de comprobante</label>
+            <div style="display:flex;gap:8px;">
+              <button type="button" id="resp-factura" class="btn-secondary" style="flex:1;" onclick="setRespaldo('factura')">🧺 Factura / ticket</button>
+              <button type="button" id="resp-deposito" class="btn-secondary" style="flex:1;" onclick="setRespaldo('deposito')">🏦 Depósito bancario</button>
+            </div>
+          </div>
+          <div class="form-row full" id="row-factura">
+            <label id="lbl-adjunto">Foto o PDF de la factura</label>
+            <input type="file" id="f-factura" accept="image/*,application/pdf" capture="environment"
+                   style="width:100%;padding:10px;border:2px dashed var(--border);border-radius:8px;background:#f9fafb;">
+            <div style="font-size:11px;color:var(--muted);margin-top:4px;"><span id="aviso-adjunto"></span></div>
+          </div>
+        </div>
+        <div class="form-actions">
+          <button class="btn-primary" style="width:auto;padding:9px 24px;" id="btn-guardar" onclick="guardarMovimiento()">💾 Guardar</button>
+        </div>
+      </div>
+    </div>
+    <div class="card" style="max-width:680px;margin:14px auto 0;" id="mis-comprobantes"><div class="empty"><div class="spinner"></div></div></div>
+  `;
+  _tipoCarga = 'egreso';
+  const lista = _categorias.filter(c => c.tipo === 'egreso');
+  document.getElementById('f-categoria').innerHTML = '<option value="">— Elegir —</option>' +
+    lista.map(c => `<option value="${c.id}">${c.icono || ''} ${escHtml(c.nombre)}</option>`).join('');
+  setRespaldo('factura');
+  renderMisComprobantes();
+}
+
+// Últimas cargas propias (RLS tm_mis_cargas_read) + estado del archivo
+async function renderMisComprobantes() {
+  const box = document.getElementById('mis-comprobantes');
+  if (!box) return;
+  const { data: movs, error } = await sb.from('tesoreria_movimientos')
+    .select('id,fecha,importe,descripcion,respaldo_tipo,factura_path,archivo_carpeta,respaldo_rechazado_at,respaldo_rechazo_motivo,categoria_id,cuenta_id,origen,firmado_at,codigo_seguimiento')
+    .in('respaldo_tipo', ['factura', 'deposito'])
+    .ilike('cargado_por', session.email || '')
+    .order('fecha', { ascending: false }).order('id', { ascending: false }).limit(20);
+  if (error) { box.innerHTML = `<div class="empty">Error: ${escHtml(error.message)}</div>`; return; }
+  _movsCache = movs || [];
+  if (!_movsCache.length) { box.innerHTML = '<div class="empty" style="padding:14px;">Todavía no subiste comprobantes.</div>'; return; }
+  box.innerHTML = `
+    <h3 class="card-title" style="margin:0 0 8px;">📋 Mis comprobantes</h3>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Fecha</th><th>Detalle</th><th class="right">Importe</th><th>Estado</th></tr></thead>
+      <tbody>${_movsCache.map(m => {
+        const rech = m.respaldo_rechazado_at && !m.factura_path;
+        const estado = rech
+          ? `<span style="color:#dc2626;font-weight:600;">↩ Rechazado</span><div style="font-size:11px;color:#991b1b;">${escHtml(m.respaldo_rechazo_motivo || '')}</div><button class="btn-secondary" style="font-size:11px;padding:3px 8px;margin-top:4px;" onclick="abrirEditarMov(${m.id})">📎 Volver a subir</button>`
+          : m.archivo_carpeta ? `<span style="color:#065f46;">📁 ${escHtml(m.archivo_carpeta.split('/').pop())}</span>`
+          : m.factura_path ? '<span style="color:var(--muted);">⏳ Enviando…</span>' : '—';
+        return `<tr>
+          <td style="white-space:nowrap;">${fmtFecha(m.fecha)}</td>
+          <td>${m.respaldo_tipo === 'deposito' ? '🏦' : '🧺'} ${escHtml(m.descripcion || '')}<div style="font-size:11px;color:var(--muted);">${escHtml(m.codigo_seguimiento || '')}</div></td>
+          <td class="right" style="white-space:nowrap;color:var(--danger);font-weight:600;">${fmt$(m.importe)}</td>
+          <td>${estado}</td>
+        </tr>`; }).join('')}
+      </tbody></table></div>`;
+}
+
 let _tipoCarga = 'ingreso';
 let _respaldoCarga = 'recibo';
 
@@ -1600,6 +1715,7 @@ function setRespaldo(r) {
   // 4 respaldos posibles: recibo firmado (circuito de siempre, PDF con QR),
   // factura/ticket y depósito (van al OneDrive), y "ninguno" (solo Oficina).
   if (r === 'ninguno' && !session.esOficina) r = 'recibo';
+  if (session.soloComprobantes && r !== 'deposito') r = 'factura';   // vendedoras/genéricos: sin recibo
   _respaldoCarga = r;
   [['resp-recibo','recibo'],['resp-factura','factura'],['resp-deposito','deposito'],['resp-ninguno','ninguno']].forEach(([id,val]) => {
     const b = document.getElementById(id);
@@ -1931,6 +2047,7 @@ async function guardarMovimiento() {
         toast(data.respaldo_tipo === 'deposito'
               ? '✓ Cargado · el comprobante se envía a Marisa'
               : '✓ Cargado · la factura se envía a administración');
+        if (session.soloComprobantes) { renderCargar(); return; }
         cambiarTab('dashboard');
         cargar();
         return;
@@ -2853,7 +2970,7 @@ if ('serviceWorker' in navigator) {
   }, true);
 })();
 </script>
-<script src="manual.js?v=5"></script>
+<script src="manual.js?v=6"></script>
 <script>
 // (24-ago) Blindaje iOS: re-suscripcion automatica de push. iOS suelta la
 // suscripcion silenciosamente cada tanto; si el permiso sigue concedido y
