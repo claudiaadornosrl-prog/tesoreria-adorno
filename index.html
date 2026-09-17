@@ -343,7 +343,12 @@ function wireImporte(el) {
   el.addEventListener('blur',  () => { el.value = nmShow(nmParse(el.value)); });
   if (el.value) el.value = nmShow(nmParse(el.value));
 }
-const hoyISO = () => new Date().toISOString().split('T')[0];
+// 🚨 En hora argentina (UTC−3), `new Date().toISOString()` ya devuelve el día
+// SIGUIENTE a partir de las 21:00. Los locales cierran 21/22 hs, así que la
+// cajera que cargaba un comprobante a las 21:30 lo grababa con fecha de mañana
+// y le descuadraba la caja del día. Ventas ya usaba esta versión (index.html
+// ~548); Tesorería había quedado con la de UTC.
+const hoyISO = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }).format(new Date());
 
 function toast(msg, err) {
   const t = document.getElementById('toast');
