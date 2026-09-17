@@ -1421,11 +1421,20 @@ async function abrirEditarMov(id) {
       <div class="form-row"><label>Importe (negativo = egreso)</label><input type="text" inputmode="decimal" id="em-importe" value="${nmShow(m.importe)}" onfocus="wireImporte(this)"></div>
       <div class="form-row"><label>Categoría</label><select id="em-categoria"><option value="">— Sin categoría —</option>${cats}</select></div>
       <div class="form-row"><label>Descripción</label><textarea id="em-desc" style="min-height:60px;">${escHtml(m.descripcion || '')}</textarea></div>
-      ${(m.respaldo_tipo === 'factura' || m.respaldo_tipo === 'deposito') ? `
-      <div class="form-row"><label>${m.respaldo_tipo === 'deposito' ? 'Comprobante de depósito' : 'Factura'} ${m.respaldo_rechazado_at && !m.factura_path ? '<span style="color:#dc2626;">— RECHAZADO: ' + escHtml(m.respaldo_rechazo_motivo || '') + '</span>' : '(reemplazar)'}</label>
+      ${(m.cuenta_tipo === 'caja' && Number(m.importe) < 0) ? `
+      <div class="form-row"><label>Tipo de comprobante</label>
+        <select id="em-respaldo" onchange="_editRespaldoCambio()">
+          <option value="recibo"   ${m.respaldo_tipo === 'recibo'   ? 'selected' : ''}>🧾 Recibo firmado</option>
+          <option value="factura"  ${m.respaldo_tipo === 'factura'  ? 'selected' : ''}>🧺 Factura / ticket</option>
+          <option value="deposito" ${m.respaldo_tipo === 'deposito' ? 'selected' : ''}>🏦 Depósito bancario</option>
+        </select>
+        <div id="em-respaldo-aviso" style="font-size:11px;color:#92400e;margin-top:4px;"></div>
+      </div>` : ''}
+      <div class="form-row" id="em-fila-archivo" style="${(m.respaldo_tipo === 'factura' || m.respaldo_tipo === 'deposito') ? '' : 'display:none;'}">
+        <label id="em-lbl-archivo">${m.respaldo_tipo === 'deposito' ? 'Comprobante de depósito' : 'Factura'} ${m.respaldo_rechazado_at && !m.factura_path ? '<span style="color:#dc2626;">— RECHAZADO: ' + escHtml(m.respaldo_rechazo_motivo || '') + '</span>' : '(reemplazar)'}</label>
         <input type="file" id="em-factura" accept="image/*,application/pdf" capture="environment">
         <div style="font-size:11px;color:var(--muted);margin-top:4px;">${m.factura_path ? 'Si adjuntás uno nuevo, reemplaza al actual y vuelve a entrar al circuito.' : 'Adjuntá la foto o el PDF correcto.'}</div>
-      </div>` : ''}
+      </div>
       <div style="font-size:11px;color:var(--muted);margin:8px 0 12px;">
         ⚠ Cambiar el importe altera el saldo de la caja. Los movimientos del banco (scraper) se van a re-sincronizar en la próxima pasada si los editás.
       </div>
@@ -1436,6 +1445,24 @@ async function abrirEditarMov(id) {
     </div>`;
   bg.onclick = () => bg.remove();
   document.body.appendChild(bg);
+}
+
+// Al cambiar el tipo en el modal: mostrar/ocultar el adjunto y decir qué implica.
+// Las reglas duras (archivo obligatorio, firma) las valida la RPC — esto es
+// para que la persona sepa antes de guardar, no para reemplazar el guardián.
+function _editRespaldoCambio() {
+  const sel = document.getElementById('em-respaldo'); if (!sel) return;
+  const t = sel.value;
+  const fila = document.getElementById('em-fila-archivo');
+  const lbl  = document.getElementById('em-lbl-archivo');
+  const av   = document.getElementById('em-respaldo-aviso');
+  if (fila) fila.style.display = (t === 'recibo') ? 'none' : '';
+  if (lbl && t !== 'recibo') lbl.textContent = (t === 'deposito' ? 'Comprobante de depósito' : 'Factura / ticket');
+  if (av) av.textContent = t === 'recibo'
+    ? 'Pasa a llevar firma: vas a tener que descargar el PDF, hacerlo firmar y mandarlo por mail.'
+    : (t === 'deposito'
+        ? 'Sin firma. Hace falta la foto del comprobante: va al archivero de Oficina.'
+        : 'Sin firma. Hace falta la foto o el PDF: entra al circuito contable.');
 }
 
 async function guardarEditMov(id) {
@@ -1461,6 +1488,28 @@ async function guardarEditMov(id) {
       patch.factura_path = pub.publicUrl;   // el trigger resetea el circuito (se vuelve a subir al OneDrive)
       patch.observacion_control = null; patch.observacion_control_por = null; patch.observacion_control_at = null;
     }
+
+    // ── Cambio de TIPO (17-sep, JP) ──────────────────────────────────
+    // Va por RPC porque cada tipo tiene reglas propias: el recibo lleva firma
+    // y no lleva archivo; la factura y el depósito al revés, y el archivo es
+    // obligatorio. Se hace ANTES del resto para que el update no pise lo que
+    // la RPC acomoda.
+    const selTipo = document.getElementById('em-respaldo');
+    const m1 = _movsCache.find(x => x.id === id) || {};
+    if (selTipo && selTipo.value !== m1.respaldo_tipo) {
+      const nuevo = selTipo.value;
+      if (nuevo !== 'recibo' && !patch.factura_path && !m1.factura_path) {
+        throw new Error('Para pasarlo a ' + (nuevo === 'deposito' ? 'depósito' : 'factura') +
+                        ' hay que adjuntar la foto o el PDF');
+      }
+      const { data: rt, error: eT } = await sb.rpc('tesoreria_cambiar_respaldo',
+        { p_mov_id: id, p_tipo: nuevo, p_factura_path: patch.factura_path || null });
+      if (eT) throw eT;
+      if (rt && rt.ok === false) throw new Error(rt.msg || 'No se pudo cambiar el tipo');
+      delete patch.factura_path;    // ya lo dejó puesto la RPC
+      toast('✓ ' + (rt?.msg || 'Tipo cambiado'));
+    }
+
     const { error } = await sb.from('tesoreria_movimientos').update(patch).eq('id', id);
     if (error) throw error;
     document.getElementById('editmov-bg')?.remove();
@@ -3136,7 +3185,7 @@ if ('serviceWorker' in navigator) {
   }, true);
 })();
 </script>
-<script src="manual.js?v=9"></script>
+<script src="manual.js?v=10"></script>
 <script>
 // (24-ago) Blindaje iOS: re-suscripcion automatica de push. iOS suelta la
 // suscripcion silenciosamente cada tanto; si el permiso sigue concedido y

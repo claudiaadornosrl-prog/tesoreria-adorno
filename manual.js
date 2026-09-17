@@ -77,6 +77,8 @@ function _manualSecciones() {
         'Anular pide un motivo y es obligatorio: queda registrado quién lo anuló y por qué. Si ya imprimiste el papel del recibo, rompelo.',
         '🔒 HASTA CUÁNDO lo podés tocar: mientras el comprobante no haya salido del local. Apenas descargás el PDF para hacerlo firmar, el papel puede estar en camino, así que se cierra la edición — y lo mismo si administración ya lo controló.',
         'Si ya salió y hay algo mal, usá ⚠️ Avisar a Oficina: les llega la alerta con tu motivo, ellos lo rechazan y ahí el comprobante se te vuelve a abrir para corregirlo o anularlo.',
+        '🔁 CAMBIAR EL TIPO: al corregir podés pasar el comprobante entre 🧾 Recibo, 🧺 Factura y 🏦 Depósito. Es para el caso típico de haber generado un recibo cuando era un depósito bancario: no hace falta anular y cargar todo de nuevo.',
+        'Al pasarlo a factura o depósito hace falta adjuntar la foto, y deja de llevar firma. Al pasarlo a recibo pasa a llevar firma: hay que descargar el PDF nuevo, hacerlo firmar y mandarlo por mail.',
         'Solo se puede con los comprobantes de la caja de TU local. Una vez firmado y guardado en el archivero, lo resuelve administración.',
       ],
     });
