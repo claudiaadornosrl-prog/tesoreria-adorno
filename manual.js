@@ -75,7 +75,9 @@ function _manualSecciones() {
         'Si el QR no se lee, llega un mail automático pidiendo rehacer el escaneo.',
         '↩ RECHAZADO: si administración te rechaza un comprobante, aparece acá en rojo con el motivo. Tenés dos salidas: ✏️ Corregir (cambiar importe, fecha, descripción o categoría) o ✗ Anular (el movimiento desaparece y la caja vuelve como estaba).',
         'Anular pide un motivo y es obligatorio: queda registrado quién lo anuló y por qué. Si ya imprimiste el papel del recibo, rompelo.',
-        'Solo se puede con los comprobantes de la caja de TU local y mientras no estén firmados. Una vez firmado y guardado en el archivero, lo resuelve administración.',
+        '🔒 HASTA CUÁNDO lo podés tocar: mientras el comprobante no haya salido del local. Apenas descargás el PDF para hacerlo firmar, el papel puede estar en camino, así que se cierra la edición — y lo mismo si administración ya lo controló.',
+        'Si ya salió y hay algo mal, usá ⚠️ Avisar a Oficina: les llega la alerta con tu motivo, ellos lo rechazan y ahí el comprobante se te vuelve a abrir para corregirlo o anularlo.',
+        'Solo se puede con los comprobantes de la caja de TU local. Una vez firmado y guardado en el archivero, lo resuelve administración.',
       ],
     });
   }
