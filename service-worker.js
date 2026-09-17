@@ -1,5 +1,5 @@
 // Service Worker — Tesorería Adorno
-const CACHE_VERSION = 'tesoreria-adorno-v87-cambiar-tipo-de-comprobante';
+const CACHE_VERSION = 'tesoreria-adorno-v88-se-traba-al-volver-firmado';
 const CACHE_ASSETS = ['./', './index.html',
   './manual.js', './manifest.webmanifest', './favicon.svg', './fonts/URWGothic-Book.ttf'];
 

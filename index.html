@@ -601,9 +601,13 @@ async function renderPendientesFirma() {
               hace <strong>${m.dias_pendiente} día(s)</strong>
               ${m.dias_pendiente >= 3 ? '<span style="color:var(--red);">⚠ atrasado</span>' : ''}
             </div>
-            ${(!session.verTodo && (m.controlado || m.pdf_descargado_at)) ? `<div style="font-size:11px;color:#92400e;margin-top:5px;background:#fef3c7;border-radius:6px;padding:5px 8px;">
-              🔒 ${m.controlado ? 'Administración ya controló este comprobante.' : 'El recibo ya se imprimió para firmar' + (m.pdf_descargado_at ? ' el ' + new Date(m.pdf_descargado_at).toLocaleString('es-AR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' }) : '') + ', el papel puede estar en camino.'}
+            ${(!session.verTodo && m.controlado) ? `<div style="font-size:11px;color:#92400e;margin-top:5px;background:#fef3c7;border-radius:6px;padding:5px 8px;">
+              🔒 Administración ya controló este comprobante.
               Si hay algo mal, avisá con ⚠️ y administración lo rechaza — ahí lo vas a poder corregir.
+            </div>` : ''}
+            ${(!m.controlado && m.pdf_descargado_at) ? `<div style="font-size:11px;color:#92400e;margin-top:5px;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:5px 8px;">
+              🖨 Ya lo imprimiste el ${new Date(m.pdf_descargado_at).toLocaleString('es-AR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' })}.
+              Si corregís el importe, la fecha o el tipo, <strong>el papel impreso deja de servir</strong>: rompelo e imprimí de nuevo.
             </div>` : ''}
           </div>
           <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;">
@@ -611,14 +615,14 @@ async function renderPendientesFirma() {
             ${(() => {
               if (session.verTodo) return `
                 <button class="btn-secondary" style="width:auto;padding:8px 14px;font-size:13px;" onclick="abrirEditarMov(${m.id})">✏️ Corregir</button>
-                <button class="btn-secondary" style="width:auto;padding:8px 14px;font-size:13px;color:var(--red);border-color:#fca5a5;" onclick="cancelarMovimiento(${m.id})">✗ Anular</button>`;
+                <button class="btn-secondary" style="width:auto;padding:8px 14px;font-size:13px;color:var(--red);border-color:#fca5a5;" onclick="cancelarMovimiento(${m.id}, ${m.pdf_descargado_at ? JSON.stringify(m.pdf_descargado_at) : 'null'})">✗ Anular</button>`;
               if (m.origen !== 'manual' || m.archivo_item_id) return '';
-              const salio = m.controlado || m.pdf_descargado_at;
+              const salio = m.controlado;   // imprimir ya no traba (17-sep): traba volver firmado
               if (!salio) return `
                 <button class="btn-secondary" style="width:auto;padding:8px 14px;font-size:13px;" onclick="abrirEditarMov(${m.id})" title="Corregir importe, fecha, descripción o categoría">✏️ Corregir</button>
-                <button class="btn-secondary" style="width:auto;padding:8px 14px;font-size:13px;color:var(--red);border-color:#fca5a5;" onclick="cancelarMovimiento(${m.id})" title="Anular este comprobante: desaparece y la caja vuelve como estaba">✗ Anular</button>`;
+                <button class="btn-secondary" style="width:auto;padding:8px 14px;font-size:13px;color:var(--red);border-color:#fca5a5;" onclick="cancelarMovimiento(${m.id}, ${m.pdf_descargado_at ? JSON.stringify(m.pdf_descargado_at) : 'null'})" title="Anular este comprobante: desaparece y la caja vuelve como estaba">✗ Anular</button>`;
               return `
-                <button class="btn-secondary" style="width:auto;padding:8px 14px;font-size:13px;" onclick="reportarProblemaMov(${m.id})" title="${m.controlado ? 'Administración ya lo controló' : 'El recibo ya se imprimió para firmar'} — avisales y ellos lo rechazan">⚠️ Avisar a Oficina</button>`;
+                <button class="btn-secondary" style="width:auto;padding:8px 14px;font-size:13px;" onclick="reportarProblemaMov(${m.id})" title="Administración ya lo controló — avisales y ellos lo rechazan">⚠️ Avisar a Oficina</button>`;
             })()}
           </div>
         </div>
@@ -627,10 +631,14 @@ async function renderPendientesFirma() {
   `;
 }
 
-async function cancelarMovimiento(id) {
+async function cancelarMovimiento(id, impresoEl) {
   // El motivo NO es decorativo: queda en tesoreria_movimientos_borrados, que es
   // el único rastro que va a quedar de este comprobante. La RPC lo exige.
-  const motivo = prompt('¿Por qué anulás este comprobante?\n\nEl movimiento desaparece y la caja vuelve como estaba.\nSi ya imprimiste el papel, rompelo.\n\nMotivo (obligatorio):');
+  const aviso = impresoEl
+    ? '\n\n🖨 OJO: este recibo ya se imprimió el ' + new Date(impresoEl).toLocaleString('es-AR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' }) +
+      '.\nSi el papel firmado ya salió para Oficina, avisales — si no, rompelo.'
+    : '';
+  const motivo = prompt('¿Por qué anulás este comprobante?\n\nEl movimiento desaparece y la caja vuelve como estaba.' + aviso + '\n\nMotivo (obligatorio):');
   if (motivo === null) return;
   if (!motivo.trim()) { toast('Hace falta el motivo', true); return; }
   try {
@@ -1420,6 +1428,11 @@ async function abrirEditarMov(id) {
       <div class="form-row"><label>Fecha</label><input type="date" id="em-fecha" value="${m.fecha}"></div>
       <div class="form-row"><label>Importe (negativo = egreso)</label><input type="text" inputmode="decimal" id="em-importe" value="${nmShow(m.importe)}" onfocus="wireImporte(this)"></div>
       <div class="form-row"><label>Categoría</label><select id="em-categoria"><option value="">— Sin categoría —</option>${cats}</select></div>
+      ${m.pdf_descargado_at && !m.firmado_at ? `<div style="font-size:12px;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 10px;margin-bottom:10px;">
+        🖨 <strong>Este recibo ya se imprimió</strong> el ${new Date(m.pdf_descargado_at).toLocaleString('es-AR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' })}.
+        Si cambiás el importe, la fecha o el tipo, ese papel deja de servir: <strong>rompelo e imprimí de nuevo</strong>.
+        Si ya lo mandaste firmado a Oficina, avisales.
+      </div>` : ''}
       <div class="form-row"><label>Descripción</label><textarea id="em-desc" style="min-height:60px;">${escHtml(m.descripcion || '')}</textarea></div>
       ${(m.cuenta_tipo === 'caja' && Number(m.importe) < 0) ? `
       <div class="form-row"><label>Tipo de comprobante</label>
@@ -1720,12 +1733,12 @@ function renderListaMovimientos(movs, tenencias = []) {
                 </td>`;
                 // Encargada/cajera: sus movimientos manuales SIN firmar se
                 // pueden corregir o borrar; los ya guardados solo se reportan.
-                if (m.origen === 'manual' && !m.firmado_at && !m.controlado && !m.pdf_descargado_at) return `<td style="white-space:nowrap;text-align:center;">${btnPdf}
-                  <button class="btn-icon" onclick="abrirEditarMov(${m.id})" title="Corregir este movimiento (todavía no salió del local)" style="background:none;border:none;cursor:pointer;font-size:13px;padding:2px 3px;opacity:0.6;">✏️</button>
-                  <button class="btn-icon" onclick="borrarMov(${m.id})" title="Anular este movimiento (todavía no salió del local)" style="background:none;border:none;cursor:pointer;font-size:13px;padding:2px 3px;opacity:0.6;">🗑</button>
+                if (m.origen === 'manual' && !m.firmado_at && !m.controlado) return `<td style="white-space:nowrap;text-align:center;">${btnPdf}
+                  <button class="btn-icon" onclick="abrirEditarMov(${m.id})" title="${m.pdf_descargado_at ? 'Corregir — ojo: ya lo imprimiste, el papel dejaría de servir' : 'Corregir este movimiento (todavía no volvió firmado)'}" style="background:none;border:none;cursor:pointer;font-size:13px;padding:2px 3px;opacity:0.6;">✏️</button>
+                  <button class="btn-icon" onclick="borrarMov(${m.id})" title="${m.pdf_descargado_at ? 'Anular — ojo: ya lo imprimiste' : 'Anular este movimiento (todavía no volvió firmado)'}" style="background:none;border:none;cursor:pointer;font-size:13px;padding:2px 3px;opacity:0.6;">🗑</button>
                 </td>`;
                 if (m.origen === 'manual') return `<td style="white-space:nowrap;text-align:center;">${btnPdf}
-                  <button class="btn-icon" onclick="reportarProblemaMov(${m.id})" title="${m.firmado_at ? 'Ya está guardado en el archivero' : m.controlado ? 'Administración ya lo controló' : 'El recibo ya se imprimió para firmar'}: avisale a administración y ellos lo rechazan" style="background:none;border:none;cursor:pointer;font-size:13px;padding:2px 3px;opacity:0.7;">⚠️</button>
+                  <button class="btn-icon" onclick="reportarProblemaMov(${m.id})" title="${m.firmado_at ? 'Ya volvió firmado y está en el archivero' : 'Administración ya lo controló'}: avisale a administración y ellos lo rechazan" style="background:none;border:none;cursor:pointer;font-size:13px;padding:2px 3px;opacity:0.7;">⚠️</button>
                 </td>`;
                 return '<td></td>';
               })()}
@@ -3185,7 +3198,7 @@ if ('serviceWorker' in navigator) {
   }, true);
 })();
 </script>
-<script src="manual.js?v=10"></script>
+<script src="manual.js?v=11"></script>
 <script>
 // (24-ago) Blindaje iOS: re-suscripcion automatica de push. iOS suelta la
 // suscripcion silenciosamente cada tanto; si el permiso sigue concedido y
