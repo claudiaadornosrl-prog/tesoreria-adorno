@@ -73,6 +73,9 @@ function _manualSecciones() {
         'Cada egreso con respaldo "recibo" queda acá hasta que llega el escaneo firmado.',
         'Imprimí el recibo, hacelo firmar, escanealo y mandalo por mail — el sistema lo procesa solo leyendo el código QR.',
         'Si el QR no se lee, llega un mail automático pidiendo rehacer el escaneo.',
+        '↩ RECHAZADO: si administración te rechaza un comprobante, aparece acá en rojo con el motivo. Tenés dos salidas: ✏️ Corregir (cambiar importe, fecha, descripción o categoría) o ✗ Anular (el movimiento desaparece y la caja vuelve como estaba).',
+        'Anular pide un motivo y es obligatorio: queda registrado quién lo anuló y por qué. Si ya imprimiste el papel del recibo, rompelo.',
+        'Solo se puede con los comprobantes de la caja de TU local y mientras no estén firmados. Una vez firmado y guardado en el archivero, lo resuelve administración.',
       ],
     });
   }

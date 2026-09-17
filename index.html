@@ -569,6 +569,11 @@ async function renderPendientesFirma() {
   }
 
   cont.innerHTML = `
+    ${(() => { const rech = pend.filter(x => x.firma_rechazada_at).length;
+      return rech ? `<div class="card" style="background:#fee2e2;border-left:4px solid #dc2626;padding:12px;">
+        <div style="font-size:13px;font-weight:700;color:#991b1b;">↩ ${rech} comprobante(s) rechazado(s) por administración</div>
+        <div style="font-size:12px;color:#b91c1c;margin-top:4px;">Están abajo con el motivo. Corregilos (✏️) o anulalos (✗) y volvé a cargarlos bien.</div>
+      </div>` : ''; })()}
     <div class="card" style="background:#fef3c7;border-left:4px solid #f59e0b;padding:12px;">
       <div style="font-size:13px;font-weight:600;color:#92400e;">📝 ${pend.length} egreso(s) pendiente(s) de firma</div>
       <div style="font-size:12px;color:#a16207;margin-top:4px;">
@@ -584,6 +589,11 @@ async function renderPendientesFirma() {
               ${escHtml(m.codigo_seguimiento||'')} · ${fmtFecha(m.fecha)} · ${escHtml(m.cuenta_nombre)}
             </div>
             <div style="font-size:20px;font-weight:700;color:var(--red);margin-top:4px;">${fmt$(m.importe)}</div>
+            ${m.firma_rechazada_at ? `<div style="background:#fee2e2;border-left:3px solid #dc2626;border-radius:6px;padding:8px 10px;margin-top:6px;">
+              <div style="font-size:12px;font-weight:700;color:#991b1b;">↩ Administración RECHAZÓ este comprobante</div>
+              ${m.firma_rechazo_motivo ? `<div style="font-size:12px;color:#991b1b;margin-top:2px;">Motivo: ${escHtml(m.firma_rechazo_motivo)}</div>` : ''}
+              <div style="font-size:11px;color:#b91c1c;margin-top:3px;">Corregilo con ✏️ o anulalo con ✗ y volvé a cargarlo como corresponde. Si ya imprimiste el papel, rompelo.</div>
+            </div>` : ''}
             <div style="font-size:13px;color:var(--text);margin-top:4px;">${escHtml(m.categoria_nombre||'Sin categoría')}</div>
             ${m.descripcion ? `<div style="font-size:12px;color:var(--muted);margin-top:4px;font-style:italic;">"${escHtml(m.descripcion)}"</div>` : ''}
             <div style="font-size:11px;color:var(--muted);margin-top:6px;">
@@ -594,7 +604,9 @@ async function renderPendientesFirma() {
           </div>
           <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;">
             <button class="btn-primary" style="width:auto;padding:8px 14px;font-size:13px;" onclick="generarPDFEgreso(${m.id})">📄 Descargar PDF</button>
-            ${session.verTodo ? `<button class="btn-secondary" style="color:var(--red);border-color:#fca5a5;" onclick="cancelarMovimiento(${m.id})">✗ Cancelar</button>` : ''}
+            ${(session.verTodo || (m.origen === 'manual' && !m.archivo_item_id)) ? `
+              <button class="btn-secondary" style="width:auto;padding:8px 14px;font-size:13px;" onclick="abrirEditarMov(${m.id})" title="Corregir importe, fecha, descripción o categoría">✏️ Corregir</button>
+              <button class="btn-secondary" style="width:auto;padding:8px 14px;font-size:13px;color:var(--red);border-color:#fca5a5;" onclick="cancelarMovimiento(${m.id})" title="Anular este comprobante: desaparece y la caja vuelve como estaba">✗ Anular</button>` : ''}
           </div>
         </div>
       </div>
@@ -603,12 +615,18 @@ async function renderPendientesFirma() {
 }
 
 async function cancelarMovimiento(id) {
-  const motivo = prompt('¿Por qué cancelás este movimiento? (queda registrado)');
+  // El motivo NO es decorativo: queda en tesoreria_movimientos_borrados, que es
+  // el único rastro que va a quedar de este comprobante. La RPC lo exige.
+  const motivo = prompt('¿Por qué anulás este comprobante?\n\nEl movimiento desaparece y la caja vuelve como estaba.\nSi ya imprimiste el papel, rompelo.\n\nMotivo (obligatorio):');
   if (motivo === null) return;
+  if (!motivo.trim()) { toast('Hace falta el motivo', true); return; }
   try {
-    const { error } = await sb.rpc('tesoreria_cancelar_movimiento', { p_mov_id: id, p_motivo: motivo });
+    const { data, error } = await sb.rpc('tesoreria_cancelar_movimiento', { p_mov_id: id, p_motivo: motivo });
     if (error) throw error;
-    toast('✓ Cancelado'); renderPendientesFirma();
+    if (data && data.ok === false) { toast(data.msg || 'No se pudo anular', true); return; }
+    toast('✓ ' + ((data && data.codigo) ? data.codigo + ' anulado' : 'Anulado'));
+    await cargar();                 // los saldos cambian: hay que releerlos
+    renderPendientesFirma();
   } catch (e) { toast('Error: ' + e.message, true); }
 }
 
@@ -1358,9 +1376,16 @@ async function exportarMovsExcel() {
 }
 
 // ═══ Editar / borrar movimiento (solo admin) ═══
-function abrirEditarMov(id) {
-  const m = _movsCache.find(x => x.id === id);
-  if (!m) return;
+async function abrirEditarMov(id) {
+  let m = _movsCache.find(x => x.id === id);
+  if (!m) {
+    // No está en la caché de la grilla (pasa al entrar desde Pendientes firma
+    // o desde Comprobantes): se trae de la base. La RLS ya filtra lo que puede ver.
+    const { data, error } = await sb.from('tesoreria_movimientos_view').select('*').eq('id', id).maybeSingle();
+    if (error || !data) { toast(error ? 'Error: ' + error.message : 'No se encontró el movimiento', true); return; }
+    m = data;
+    _movsCache.push(m);     // para que guardarEdicionMov lo encuentre después
+  }
   const cats = _categorias.map(c =>
     `<option value="${c.id}" ${m.categoria_id === c.id ? 'selected' : ''}>${escHtml(c.nombre)}</option>`).join('');
   const bg = document.createElement('div');
@@ -1418,7 +1443,10 @@ async function guardarEditMov(id) {
     if (error) throw error;
     document.getElementById('editmov-bg')?.remove();
     toast('✓ Movimiento actualizado');
-    if (session.soloComprobantes) renderCargar(); else renderMovimientos();
+    await cargar();   // los saldos pueden haber cambiado
+    if (session.soloComprobantes) renderCargar();
+    else if (currentTab === 'firma') renderPendientesFirma();
+    else renderMovimientos();
   } catch (e) { toast('Error: ' + e.message, true); }
 }
 
@@ -1524,7 +1552,11 @@ function renderListaMovimientos(movs, tenencias = []) {
             const esDep = m.respaldo_tipo === 'deposito';
             const rotulo = esDep ? 'Depósito' : 'Factura';
             const destino = esDep ? 'Marisa' : 'administración';
-            if (m.respaldo_rechazado_at && !m.factura_path) {
+            if (m.firma_rechazada_at && !m.firmado_at) {
+              // Administración rechazó el recibo: hay que corregirlo o anularlo.
+              // Antes esto no se veía por ningún lado en Tesorería.
+              firma = `<span class="chip" style="background:#fee2e2;color:#991b1b;font-size:11px;font-weight:700;cursor:pointer;" title="${escHtml(m.firma_rechazo_motivo || 'Sin motivo detallado')} — corregilo con ✏️ o anulalo con 🗑" onclick="event.stopPropagation();cambiarTab('firma')">↩ Rechazado</span>`;
+            } else if (m.respaldo_rechazado_at && !m.factura_path) {
               // (7-sep) administración rechazó el archivo: hay que volver a adjuntar
               firma = `<span class="chip" style="background:#fee2e2;color:#991b1b;font-size:11px;font-weight:600;cursor:pointer;" title="${escHtml(m.respaldo_rechazo_motivo || '')} — tocá ✏️ y adjuntá el archivo correcto" onclick="event.stopPropagation();abrirEditarMov(${m.id})">↩ Volver a subir ${rotulo.toLowerCase()}</span>`;
             } else if (m.factura_path) {
@@ -3068,7 +3100,7 @@ if ('serviceWorker' in navigator) {
   }, true);
 })();
 </script>
-<script src="manual.js?v=7"></script>
+<script src="manual.js?v=8"></script>
 <script>
 // (24-ago) Blindaje iOS: re-suscripcion automatica de push. iOS suelta la
 // suscripcion silenciosamente cada tanto; si el permiso sigue concedido y
