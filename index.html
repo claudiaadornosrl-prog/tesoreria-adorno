@@ -239,6 +239,7 @@ tbody tr:hover { background: var(--primary-light); }
       <button data-tab="firma" onclick="cambiarTab('firma')" id="tab-firma" style="display:none;">📝 Pendientes firma <span id="badge-firma" style="display:none;background:#dc2626;color:white;border-radius:999px;padding:1px 7px;font-size:11px;margin-left:4px;font-weight:700;"></span></button>
       <button data-tab="pendientes" onclick="cambiarTab('pendientes')" id="tab-pendientes">💸 Pendientes <span id="badge-pendientes" style="display:none;background:#dc2626;color:white;border-radius:999px;padding:1px 7px;font-size:11px;margin-left:4px;font-weight:700;"></span></button>
       <button data-tab="scrapers" onclick="cambiarTab('scrapers')" id="tab-scrapers" style="display:none;">🤖 Bots</button>
+      <button data-tab="transferencias" onclick="cambiarTab('transferencias')" id="tab-transferencias">💸 Transferencias</button>
     </div>
     <div class="header-right">
       <button class="btn-icon kebab-tabs-btn" onclick="toggleTabsMenu(event)" title="Menú" aria-label="Menú">☰</button>
@@ -498,6 +499,11 @@ function enterApp() {
       document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === 'cargar'));
     }
   }
+  // (22-sep) el push de "transferencia recibida" abre directo la pestaña
+  if (new URLSearchParams(location.search).get('tab') === 'transferencias') {
+    currentTab = 'transferencias';
+    document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === 'transferencias'));
+  }
   cargar();
   actualizarBtnNotifs();
 }
@@ -546,6 +552,77 @@ function renderTab(tab) {
   if (tab === 'firma')       return renderPendientesFirma();
   if (tab === 'pendientes')  return renderPagosPendientes();
   if (tab === 'scrapers')    return renderScrapers();
+  if (tab === 'transferencias') return renderTransferencias();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// 💸 TRANSFERENCIAS RECIBIDAS EN EL CVU DE MP (22-sep, pedido JP)
+// Los locales necesitan saber si el cliente ya transfirió para entregarle.
+// Las cuentas colaboradoras de MP no ven la cuenta madre; acá sí: la RPC
+// devuelve solo hora / importe / código, sin saldos. MP NO informa quién
+// transfirió, así que el match es por importe y hora contra el comprobante
+// que muestra el cliente. "✔ Es mía" evita que dos locales entreguen contra
+// la misma transferencia.
+// ═══════════════════════════════════════════════════════════════════════
+async function renderTransferencias() {
+  const cont = document.getElementById('contenido');
+  cont.innerHTML = '<div class="empty"><div class="spinner"></div></div>';
+  const { data, error } = await sb.rpc('tesoreria_transferencias_recibidas', { p_dias: 3 });
+  if (error) { cont.innerHTML = `<div class="empty">Error: ${escHtml(error.message)}</div>`; return; }
+  const filas = data || [];
+  const miLocal = session.localGerencia || session.local || '';
+  cont.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+      <div>
+        <h2 style="margin:0;">💸 Transferencias recibidas en Mercado Pago</h2>
+        <div style="color:var(--muted);font-size:13px;margin-top:4px;">Últimos 3 días · lo que entró al CVU/alias de la empresa (no los cobros por QR ni Point, esos los ven en su cuenta). MP no informa quién transfirió: comparalo con el comprobante del cliente por <b>importe y hora</b>.</div>
+      </div>
+      <button class="btn-primary" id="btn-verif-transf" onclick="verificarTransferenciasAhora()">🔄 Verificar ahora</button>
+    </div>
+    ${filas.length === 0 ? '<div class="empty"><div class="icon">💸</div>No entraron transferencias en los últimos 3 días.</div>' : `
+    <div class="tabla-wrap"><table class="tabla">
+      <thead><tr><th>Fecha</th><th>Hora</th><th style="text-align:right;">Importe</th><th>Código</th><th>Estado</th><th></th></tr></thead>
+      <tbody>
+        ${filas.map(t => {
+          const rec = t.reclamado_local;
+          const estado = rec
+            ? `<span style="background:#dcfce7;color:#166534;padding:2px 8px;border-radius:999px;font-size:12px;">✔ ${escHtml(rec.toUpperCase())}</span> <span style="font-size:12px;color:var(--muted);">${escHtml(t.reclamo_nota||'')}</span>`
+            : `<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:999px;font-size:12px;">libre</span>`;
+          const btn = !rec ? `<button class="btn-secondary" style="padding:4px 10px;" onclick="reclamarTransferencia(${t.id}, ${t.importe})">✔ Es mía</button>` : '';
+          return `<tr>
+            <td>${fmtFecha(t.fecha)}</td>
+            <td style="font-family:monospace;">${escHtml(t.hora||'')}</td>
+            <td style="text-align:right;font-family:monospace;font-weight:700;">${fmt$(t.importe)}</td>
+            <td style="font-family:monospace;font-size:12px;" title="Código de la transferencia — figura en el comprobante del cliente">${escHtml(t.codigo||'')}</td>
+            <td>${estado}</td>
+            <td>${btn}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table></div>`}
+    <div style="color:var(--muted);font-size:12px;margin-top:10px;">Las transferencias entran solas (aviso por notificación). Si el cliente dice que ya transfirió y no aparece, tocá <b>🔄 Verificar ahora</b>: consulta Mercado Pago en el momento.</div>`;
+}
+
+async function verificarTransferenciasAhora() {
+  const b = document.getElementById('btn-verif-transf');
+  if (b) { b.disabled = true; b.textContent = '⏳ Consultando MP…'; }
+  try {
+    const { data, error } = await sb.functions.invoke('sync-mp-on-demand', { body: { minutes_back: 180 } });
+    if (error) throw error;
+    toast(`MP consultado · ${data?.sincronizados || 0} pago(s) actualizados`);
+  } catch (e) {
+    toast('No pude consultar MP: ' + (e.message || e), true);
+  }
+  renderTransferencias();
+}
+
+async function reclamarTransferencia(id, importe) {
+  const nota = prompt(`Transferencia de ${fmt$(importe)}.\n\n¿De qué cliente es / qué se llevó? (queda registrado y el otro local ya no la puede reclamar)`, '');
+  if (nota === null) return;
+  const { data, error } = await sb.rpc('tesoreria_transferencia_reclamar', { p_id: id, p_nota: nota });
+  if (error) { alert('No se pudo reclamar: ' + error.message); return; }
+  toast(`Reclamada para ${(data?.local||'').toUpperCase()} ✓`);
+  renderTransferencias();
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -3198,7 +3275,7 @@ if ('serviceWorker' in navigator) {
   }, true);
 })();
 </script>
-<script src="manual.js?v=11"></script>
+<script src="manual.js?v=12"></script>
 <script>
 // (24-ago) Blindaje iOS: re-suscripcion automatica de push. iOS suelta la
 // suscripcion silenciosamente cada tanto; si el permiso sigue concedido y
