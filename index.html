@@ -567,7 +567,7 @@ function renderTab(tab) {
 async function renderTransferencias() {
   const cont = document.getElementById('contenido');
   cont.innerHTML = '<div class="empty"><div class="spinner"></div></div>';
-  const { data, error } = await sb.rpc('tesoreria_transferencias_recibidas', { p_dias: 3 });
+  const { data, error } = await sb.rpc('tesoreria_transferencias_recibidas', { p_dias: 2 });
   if (error) { cont.innerHTML = `<div class="empty">Error: ${escHtml(error.message)}</div>`; return; }
   const filas = data || [];
   const miLocal = session.localGerencia || session.local || '';
@@ -575,11 +575,11 @@ async function renderTransferencias() {
     <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
       <div>
         <h2 style="margin:0;">💸 Transferencias recibidas en Mercado Pago</h2>
-        <div style="color:var(--muted);font-size:13px;margin-top:4px;">Últimos 3 días · lo que entró al CVU/alias de la empresa (no los cobros por QR ni Point, esos los ven en su cuenta). MP no informa quién transfirió: comparalo con el comprobante del cliente por <b>importe y hora</b>.</div>
+        <div style="color:var(--muted);font-size:13px;margin-top:4px;">Últimas 48 horas · lo que entró al CVU/alias de la empresa (no los cobros por QR ni Point, esos los ven en su cuenta). MP no informa quién transfirió: comparalo con el comprobante del cliente por <b>importe y hora</b>.</div>
       </div>
       <button class="btn-primary" id="btn-verif-transf" onclick="verificarTransferenciasAhora()">🔄 Verificar ahora</button>
     </div>
-    ${filas.length === 0 ? '<div class="empty"><div class="icon">💸</div>No entraron transferencias en los últimos 3 días.</div>' : `
+    ${filas.length === 0 ? '<div class="empty"><div class="icon">💸</div>No entraron transferencias en las últimas 48 horas.</div>' : `
     <div class="tabla-wrap"><table class="tabla">
       <thead><tr><th>Fecha</th><th>Hora</th><th style="text-align:right;">Importe</th><th>Código</th><th>Estado</th><th></th></tr></thead>
       <tbody>
@@ -600,7 +600,7 @@ async function renderTransferencias() {
         }).join('')}
       </tbody>
     </table></div>`}
-    <div style="color:var(--muted);font-size:12px;margin-top:10px;">Las transferencias entran solas (aviso por notificación). Si el cliente dice que ya transfirió y no aparece, tocá <b>🔄 Verificar ahora</b>: consulta Mercado Pago en el momento.</div>`;
+    <div style="color:var(--muted);font-size:12px;margin-top:10px;">Las transferencias entran solas cada 15 minutos y desaparecen de esta lista a las 48 horas. Si el cliente dice que ya transfirió y no aparece, tocá <b>🔄 Verificar ahora</b>: consulta Mercado Pago en el momento.</div>`;
 }
 
 async function verificarTransferenciasAhora() {
@@ -3275,7 +3275,7 @@ if ('serviceWorker' in navigator) {
   }, true);
 })();
 </script>
-<script src="manual.js?v=12"></script>
+<script src="manual.js?v=13"></script>
 <script>
 // (24-ago) Blindaje iOS: re-suscripcion automatica de push. iOS suelta la
 // suscripcion silenciosamente cada tanto; si el permiso sigue concedido y
