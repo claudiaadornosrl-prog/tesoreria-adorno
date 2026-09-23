@@ -3094,7 +3094,9 @@ function elegirPrestamo(pid) {
   const emp = p ? (_cat_carga.empleadas || []).find(e => String(e.id) === String(p.empleado_id)) : null;
   if (!p || !emp) return;
   document.getElementById('f-concepto').value =
-    'DEV PRESTAMO ' + emp.nombre.toUpperCase() + ' CUOTA ' + p.cuota_numero + ' DE ' + p.cuotas_totales;
+    (Number(p.cuotas_totales) === 1
+      ? 'DEV ADELANTO SUELDO ' + emp.nombre.toUpperCase()
+      : 'DEV PRESTAMO ' + emp.nombre.toUpperCase() + ' CUOTA ' + p.cuota_numero + ' DE ' + p.cuotas_totales);
   document.getElementById('f-importe').value = nmShow(-Math.abs(p.monto));
 }
 

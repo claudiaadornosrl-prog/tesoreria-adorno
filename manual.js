@@ -62,7 +62,7 @@ function _manualSecciones() {
         'Cualquier empleada o usuario genérico del local puede entrar a Tesorería y ver solo la pestaña 🧺 Comprobantes: carga un egreso de la caja de su local adjuntando foto de factura/ticket o del comprobante de depósito, y ve el estado de lo que subió (rechazado → 📎 Volver a subir). Los recibos firmados siguen siendo solo de cajeras y encargadas.',
         'El respaldo elegido manda para todos los usuarios: si admin u Oficina cargan un egreso de una caja con "Recibo firmado", también sale el PDF con QR para imprimir y firmar. Oficina tiene además "∅ Sin respaldo" (default en cuentas de banco/MP; en cajas el default es recibo).',
         'La factura se envía sola a Anita para contabilizarla; el comprobante de depósito va a Marisa, que concilia los depósitos. Vos no tenés que mandar nada por mail.',
-        'Las facturas y los comprobantes de depósito se guardan solos en el OneDrive (cada hora): la factura entra a CONTABILIZAR / SIN CONTABILIZAR y el depósito al archivero del mes. No hace falta mandar nada por mail.',
+        'Las facturas y los comprobantes de depósito se guardan solos en el OneDrive (cada hora): la factura entra a CONTABILIZAR / 1 - SIN CONTABILIZAR y el depósito al archivero del mes. No hace falta mandar nada por mail.',
         'Si administración rechaza el archivo (foto equivocada, ilegible) te llega un aviso y el movimiento muestra "↩ Volver a subir": tocá ✏️, adjuntá el archivo correcto y listo.',
       ],
     });
