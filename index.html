@@ -579,7 +579,7 @@ async function renderTransferencias() {
       </div>
       <button class="btn-primary" id="btn-verif-transf" onclick="verificarTransferenciasAhora()">🔄 Verificar ahora</button>
     </div>
-    ${filas.length === 0 ? '<div class="empty"><div class="icon">💸</div>No entraron transferencias en las últimas 48 horas.</div>' : `
+    ${filas.length === 0 ? '<div class="empty"><div class="icon">💸</div>No hay transferencias libres en las últimas 48 horas (las que ya se reclamaron con ✔ Es mía no se muestran).</div>' : `
     <div class="tabla-wrap"><table class="tabla">
       <thead><tr><th>Fecha</th><th>Hora</th><th style="text-align:right;">Importe</th><th>Código</th><th>Estado</th><th></th></tr></thead>
       <tbody>
@@ -600,7 +600,7 @@ async function renderTransferencias() {
         }).join('')}
       </tbody>
     </table></div>`}
-    <div style="color:var(--muted);font-size:12px;margin-top:10px;">Las transferencias entran solas cada 15 minutos y desaparecen de esta lista a las 48 horas. Si el cliente dice que ya transfirió y no aparece, tocá <b>🔄 Verificar ahora</b>: consulta Mercado Pago en el momento.</div>`;
+    <div style="color:var(--muted);font-size:12px;margin-top:10px;">Las transferencias entran solas cada 15 minutos y desaparecen de esta lista cuando un local toca <b>✔ Es mía</b> o a las 48 horas. Si el cliente dice que ya transfirió y no aparece, tocá <b>🔄 Verificar ahora</b>: consulta Mercado Pago en el momento.</div>`;
 }
 
 async function verificarTransferenciasAhora() {
@@ -617,11 +617,11 @@ async function verificarTransferenciasAhora() {
 }
 
 async function reclamarTransferencia(id, importe) {
-  const nota = prompt(`Transferencia de ${fmt$(importe)}.\n\n¿De qué cliente es / qué se llevó? (queda registrado y el otro local ya no la puede reclamar)`, '');
+  const nota = prompt(`Transferencia de ${fmt$(importe)}.\n\n¿De qué cliente es / qué se llevó?\n\nQueda registrada a nombre de tu local y DESAPARECE de esta lista para todos (el otro local ya no la ve).`, '');
   if (nota === null) return;
   const { data, error } = await sb.rpc('tesoreria_transferencia_reclamar', { p_id: id, p_nota: nota });
   if (error) { alert('No se pudo reclamar: ' + error.message); return; }
-  toast(`Reclamada para ${(data?.local||'').toUpperCase()} ✓`);
+  toast(`Reclamada para ${(data?.local||'').toUpperCase()} ✓ · ya no aparece en la lista`);
   renderTransferencias();
 }
 
@@ -3277,7 +3277,7 @@ if ('serviceWorker' in navigator) {
   }, true);
 })();
 </script>
-<script src="manual.js?v=13"></script>
+<script src="manual.js?v=14"></script>
 <script>
 // (24-ago) Blindaje iOS: re-suscripcion automatica de push. iOS suelta la
 // suscripcion silenciosamente cada tanto; si el permiso sigue concedido y

@@ -118,10 +118,10 @@ function _manualSecciones() {
     icon: '💸', titulo: 'Transferencias recibidas',
     desc: 'Lo que entra al CVU/alias de Mercado Pago de la empresa (la cuenta madre, que las cuentas colaboradoras no ven).',
     pasos: [
-      'Muestra las transferencias de las últimas 48 horas (después desaparecen de la lista; el movimiento sigue en Tesorería). No manda notificaciones: entrás cuando el cliente te dice que transfirió. Los cobros por QR y Point NO aparecen acá: esos ya los ven en su cuenta de MP.',
+      'Muestra las transferencias LIBRES de las últimas 48 horas (las reclamadas y las más viejas desaparecen de la lista; el movimiento sigue en Tesorería). No manda notificaciones: entrás cuando el cliente te dice que transfirió. Los cobros por QR y Point NO aparecen acá: esos ya los ven en su cuenta de MP.',
       'Mercado Pago no informa QUIÉN transfirió: compará importe y hora con el comprobante que muestra el cliente. El código de la pestaña es el mismo que figura en su comprobante.',
       'Si el cliente dice que ya transfirió y no aparece, tocá "🔄 Verificar ahora": consulta MP en el momento (unos segundos). Las transferencias también entran solas cada 15 minutos.',
-      'Antes de entregar, tocá "✔ Es mía" y anotá el cliente o qué se llevó. Queda registrado con tu local y el otro local ya no puede reclamar la misma transferencia. Si ya está reclamada por el otro local, no entregues: hablá con ellos.',
+      'Antes de entregar, tocá "✔ Es mía" y anotá el cliente o qué se llevó. Queda registrada a nombre de tu local y DESAPARECE de la lista para todos: el otro local ya no la ve. Si el cliente dice que transfirió y no la encontrás, puede que otro local ya la haya reclamado: hablá con ellos antes de entregar.',
     ],
   });
 
