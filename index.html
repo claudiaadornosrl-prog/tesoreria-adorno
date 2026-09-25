@@ -2836,12 +2836,24 @@ async function marcarComoPagado(id) {
     refrescarPendientesEnLugar(); refrescarBadgePagosPendientes();
   } catch (e) { alert('Error: ' + e.message); }
 }
+// (25-sep) "CUOTA 3 DE 6" → 3
+function _cuotaNro(c) { const m = /CUOTA\s+(\d+)\s+DE\s+\d+\s*$/i.exec(c || ''); return m ? +m[1] : null; }
 async function cancelarPago(id) {
+  const p = _pagosPendientesCache.find(x => x.id === id) || {};
   if (!confirm('¿Cancelar este pago?')) return;
+  let ids = [id];
+  // Serie de cuotas: cancelar una NO cancela las demás, salvo que se pida
+  if (p.serie_id) {
+    const nro = _cuotaNro(p.concepto) || 1;
+    const sig = _pagosPendientesCache.filter(x => x.serie_id === p.serie_id && x.id !== id
+      && ['pendiente','por_confirmar'].includes(x.estado) && (_cuotaNro(x.concepto) || 0) > nro);
+    if (sig.length && confirm(`Es la CUOTA ${nro} de una serie. ¿Cancelar también las ${sig.length} cuota(s) siguiente(s)?\n\nAceptar = cancelar todas · Cancelar = solo esta`))
+      ids = ids.concat(sig.map(x => x.id));
+  }
   try {
-    const { error } = await sb.from('tesoreria_pagos_pendientes').update({ estado: 'cancelado' }).eq('id', id);
+    const { error } = await sb.from('tesoreria_pagos_pendientes').update({ estado: 'cancelado' }).in('id', ids);
     if (error) throw error;
-    toast('Cancelado'); refrescarPendientesEnLugar();
+    toast(ids.length > 1 ? `Canceladas ${ids.length}` : 'Cancelado'); refrescarPendientesEnLugar();
   } catch (e) { alert('Error: ' + e.message); }
 }
 function abrirFormNuevoPago(precarga) { abrirFormPago(null, precarga); }
@@ -3215,9 +3227,25 @@ async function guardarPago(id) {
   }
   try {
     if (id) {
+      const antes = _pagosPendientesCache.find(x => x.id === id) || {};
       const { error } = await sb.from('tesoreria_pagos_pendientes').update(payload).eq('id', id);
       if (error) throw error;
       toast('✓ Actualizado');
+      // (25-sep) Serie de cuotas: ofrecer llevar el cambio a las cuotas siguientes
+      if (antes.serie_id) {
+        const nro = _cuotaNro(antes.concepto) || 1;
+        const sig = _pagosPendientesCache.filter(x => x.serie_id === antes.serie_id && x.id !== id
+          && ['pendiente','por_confirmar'].includes(x.estado) && (_cuotaNro(x.concepto) || 0) > nro);
+        const cambioFecha = antes.fecha_vencimiento !== fecha_vencimiento;
+        const cambio = cambioFecha || +antes.importe !== +importe || antes.concepto !== concepto
+          || (antes.destinatario || null) !== destinatario || antes.medio_pago !== medio_pago
+          || antes.local !== local || antes.categoria !== categoria || antes.moneda !== moneda;
+        if (sig.length && cambio && confirm(`Esta es la CUOTA ${nro} de una serie y hay ${sig.length} cuota(s) siguiente(s) pendiente(s).\n\n¿Aplicar el mismo cambio a las siguientes?\n(importe, concepto, destinatario, medio, local${cambioFecha ? ' y las fechas se corren a partir de esta' : ''})\n\nAceptar = sí, a todas · Cancelar = solo a esta cuota`)) {
+          const { data: n, error: e2 } = await sb.rpc('tesoreria_serie_aplicar', { p_id: id, p_fechas: cambioFecha, p_incluir_cancelados: false });
+          if (e2) throw e2;
+          toast(`✓ Aplicado a ${n} cuota(s) siguiente(s)`);
+        }
+      }
     } else {
       payload.created_by = session.email || 'admin';
       const { error } = await sb.from('tesoreria_pagos_pendientes').insert(payload);
@@ -3277,7 +3305,7 @@ if ('serviceWorker' in navigator) {
   }, true);
 })();
 </script>
-<script src="manual.js?v=14"></script>
+<script src="manual.js?v=15"></script>
 <script>
 // (24-ago) Blindaje iOS: re-suscripcion automatica de push. iOS suelta la
 // suscripcion silenciosamente cada tanto; si el permiso sigue concedido y
