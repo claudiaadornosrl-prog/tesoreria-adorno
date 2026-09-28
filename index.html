@@ -2750,8 +2750,22 @@ async function refrescarPendientesEnLugar() {
   window.scrollTo(0, y);
 }
 
-async function renderPagosPendientes() {
+// (28-sep, JP) El buscador espera a que termines de escribir (0,6 s o Enter), filtra
+// lo que ya está cargado SIN volver a consultar la base y devuelve el cursor al campo.
+// Antes re-consultaba y re-dibujaba todo a los 250 ms y el campo perdía el foco.
+function _ppBuscar(v, inmediato) {
+  _filtroTexto = v;
+  clearTimeout(window._ppDebounce);
+  const go = async () => {
+    await renderPagosPendientes(true);
+    const el = document.getElementById('pp-buscador');
+    if (el) { el.focus(); const n = el.value.length; try { el.setSelectionRange(n, n); } catch(_){} }
+  };
+  if (inmediato) go(); else window._ppDebounce = setTimeout(go, 600);
+}
+async function renderPagosPendientes(soloFiltro) {
   const cont = document.getElementById('contenido');
+  if (!soloFiltro) {
   cont.innerHTML = '<div class="empty"><div class="spinner"></div></div>';
   const filtro = _filtroEstado === 'pagados' ? ['pagado']
     : _filtroEstado === 'todos' ? ['pendiente','por_confirmar','pagado','cancelado']
@@ -2763,6 +2777,7 @@ async function renderPagosPendientes() {
   const { data, error } = await q;
   if (error) { cont.innerHTML = `<div class="empty">Error: ${escHtml(error.message)}</div>`; return; }
   _pagosPendientesCache = data || [];
+  }
   // Aplicar filtro de texto in-memory
   let cacheFiltrado = _pagosPendientesCache;
   if (_filtroTexto && _filtroTexto.trim().length >= 2) {
@@ -2815,9 +2830,9 @@ async function renderPagosPendientes() {
       <div style="position:relative;flex:1;min-width:220px;">
         <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#94a3b8;font-size:14px;">🔍</span>
         <input id="pp-buscador" type="search" placeholder="Buscar concepto, proveedor, importe…" value="${escHtml(_filtroTexto||'')}"
-               oninput="_filtroTexto=this.value;clearTimeout(window._ppDebounce);window._ppDebounce=setTimeout(()=>renderPagosPendientes(),250);"
+               oninput="_ppBuscar(this.value)" onkeydown="if(event.key==='Enter')_ppBuscar(this.value,true)"
                style="width:100%;padding:7px 10px 7px 32px;border:1px solid var(--border);border-radius:6px;font-size:13px;box-sizing:border-box;">
-        ${_filtroTexto ? `<button onclick="_filtroTexto='';renderPagosPendientes();" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);background:#f1f5f9;color:#475569;border:none;border-radius:4px;padding:3px 8px;font-size:11px;cursor:pointer;" title="Limpiar">✕</button>` : ''}
+        ${_filtroTexto ? `<button onclick="_ppBuscar('',true)" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);background:#f1f5f9;color:#475569;border:none;border-radius:4px;padding:3px 8px;font-size:11px;cursor:pointer;" title="Limpiar">✕</button>` : ''}
       </div>
       <select onchange="_filtroCategoria=this.value;renderPagosPendientes();" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
         <option value="">Todas las categorías</option>
@@ -3400,7 +3415,7 @@ if ('serviceWorker' in navigator) {
   }, true);
 })();
 </script>
-<script src="manual.js?v=16"></script>
+<script src="manual.js?v=17"></script>
 <script>
 // (24-ago) Blindaje iOS: re-suscripcion automatica de push. iOS suelta la
 // suscripcion silenciosamente cada tanto; si el permiso sigue concedido y
