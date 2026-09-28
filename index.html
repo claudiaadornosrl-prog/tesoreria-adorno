@@ -1504,7 +1504,16 @@ async function abrirEditarMov(id) {
       <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">${escHtml(m.cuenta_nombre || '')} · ${escHtml(m.origen || '')}</div>
       <div class="form-row"><label>Fecha</label><input type="date" id="em-fecha" value="${m.fecha}"></div>
       <div class="form-row"><label>Importe (negativo = egreso)</label><input type="text" inputmode="decimal" id="em-importe" value="${nmShow(m.importe)}" onfocus="wireImporte(this)"></div>
-      <div class="form-row"><label>Categoría</label><select id="em-categoria"><option value="">— Sin categoría —</option>${cats}</select></div>
+      <div class="form-row"><label>Categoría</label><select id="em-categoria" onchange="_editEventualCambio()"><option value="">— Sin categoría —</option>${cats}</select></div>
+      <div class="form-row" id="em-row-eventual" style="${_catEventual(m.categoria_id) && Number(m.importe) < 0 ? '' : 'display:none;'}background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:8px 10px;">
+        <label style="color:#991b1b;">📅 Días que cubre el pago</label>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          <input type="date" id="em-ev-desde" value="${escHtml(m.extra?.eventual?.desde || m.fecha)}" title="Desde">
+          <input type="date" id="em-ev-hasta" value="${escHtml(m.extra?.eventual?.hasta || m.fecha)}" title="Hasta (inclusive)">
+          <input type="number" id="em-ev-dias" min="1" step="1" style="width:80px;" value="${escHtml(String(m.extra?.eventual?.dias || ''))}" placeholder="días" title="Días trabajados">
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px;">${m.extra?.eventual?.inferido ? '⚠ Rango SUPUESTO al cargar el histórico — confirmalo. ' : ''}Se puede corregir aunque el recibo ya esté firmado (no cambia lo que dice el papel).</div>
+      </div>
       ${m.pdf_descargado_at && !m.firmado_at ? `<div style="font-size:12px;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 10px;margin-bottom:10px;">
         🖨 <strong>Este recibo ya se imprimió</strong> el ${new Date(m.pdf_descargado_at).toLocaleString('es-AR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' })}.
         Si cambiás el importe, la fecha o el tipo, ese papel deja de servir: <strong>rompelo e imprimí de nuevo</strong>.
@@ -1535,6 +1544,12 @@ async function abrirEditarMov(id) {
     </div>`;
   bg.onclick = () => bg.remove();
   document.body.appendChild(bg);
+}
+
+function _editEventualCambio() {
+  const row = document.getElementById('em-row-eventual'); if (!row) return;
+  const imp = nmParse(document.getElementById('em-importe')?.value || '0');
+  row.style.display = (_catEventual(document.getElementById('em-categoria')?.value) && imp < 0) ? '' : 'none';
 }
 
 // Al cambiar el tipo en el modal: mostrar/ocultar el adjunto y decir qué implica.
@@ -1602,6 +1617,14 @@ async function guardarEditMov(id) {
 
     const { error } = await sb.from('tesoreria_movimientos').update(patch).eq('id', id);
     if (error) throw error;
+    // (28-sep) Días del pago eventual: por RPC (valida y vale también con el recibo firmado)
+    if (_catEventual(patch.categoria_id) && patch.importe < 0) {
+      const d = document.getElementById('em-ev-desde')?.value, h = document.getElementById('em-ev-hasta')?.value;
+      const dRaw = document.getElementById('em-ev-dias')?.value;
+      const { error: eEv } = await sb.rpc('rrhh_eventual_fijar_dias',
+        { p_mov: id, p_desde: d || null, p_hasta: h || null, p_dias: dRaw ? Number(dRaw) : null });
+      if (eEv) throw new Error('Se guardó el movimiento pero no los días: ' + eEv.message);
+    }
     document.getElementById('editmov-bg')?.remove();
     toast('✓ Movimiento actualizado');
     await cargar();   // los saldos pueden haber cambiado
@@ -1873,7 +1896,16 @@ function renderCargar() {
             <select id="f-cuenta" ${esGerente ? 'disabled style="background:#f9fafb;"' : ''} onchange="if (_tipoCarga === 'egreso' && (_respaldoCarga === 'recibo' || _respaldoCarga === 'ninguno')) setRespaldo(_defaultRespaldo())">${esGerente ? '' : '<option value="">— Elegir —</option>'}${cuentasOpt}</select>
           </div>
           <div class="form-row"><label>Categoría</label>
-            <select id="f-categoria"><option value="">— Elegir —</option></select>
+            <select id="f-categoria" onchange="_eventualCategoriaCambio()"><option value="">— Elegir —</option></select>
+          </div>
+          <div class="form-row full" id="row-eventual" style="display:none;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:10px 12px;">
+            <label style="color:#991b1b;">📅 Días que cubre este pago <span style="color:#dc2626">*</span></label>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
+              <div><div style="font-size:11px;color:var(--muted);">Desde</div><input type="date" id="f-ev-desde" oninput="_eventualRecalc(true)"></div>
+              <div><div style="font-size:11px;color:var(--muted);">Hasta (inclusive)</div><input type="date" id="f-ev-hasta" oninput="_eventualRecalc(true)"></div>
+              <div><div style="font-size:11px;color:var(--muted);">Días trabajados</div><input type="number" id="f-ev-dias" min="1" step="1" style="width:90px;" oninput="_eventualRecalc(false)"></div>
+            </div>
+            <div id="f-ev-aviso" style="font-size:11px;color:#991b1b;margin-top:6px;"></div>
           </div>
           <div class="form-row" id="row-cuenta-destino" style="display:none;"><label>Cuenta destino</label>
             <select id="f-cuenta-destino"><option value="">— Elegir —</option>${cuentasOpt}</select>
@@ -1964,7 +1996,7 @@ async function renderCargarComprobante() {
     <div class="card" style="max-width:680px;margin:14px auto 0;" id="mis-comprobantes"><div class="empty"><div class="spinner"></div></div></div>
   `;
   _tipoCarga = 'egreso';
-  const lista = _categorias.filter(c => c.tipo === 'egreso');
+  const lista = _categorias.filter(c => c.tipo === 'egreso' && !c.rrhh_eventual_id);
   document.getElementById('f-categoria').innerHTML = '<option value="">— Elegir —</option>' +
     lista.map(c => `<option value="${c.id}">${c.icono || ''} ${escHtml(c.nombre)}</option>`).join('');
   setRespaldo('factura');
@@ -2066,6 +2098,64 @@ function setTipoCarga(tipo) {
   const sel = document.getElementById('f-categoria');
   sel.innerHTML = '<option value="">— Elegir —</option>' + lista.map(c =>
     `<option value="${c.id}">${c.icono||''} ${escHtml(c.nombre)}</option>`).join('');
+  _eventualCategoriaCambio();
+}
+
+// ── (28-sep, JP) Sueldo de personal eventual (Nora) ────────────────────
+// La categoría "Pago Nora" (tesoreria_categorias.rrhh_eventual_id) manda el
+// pago a la liquidación de RRHH: al MES de los días que cubre y al LOCAL de
+// la caja. Por eso acá se piden los días, no la fecha de pago.
+function _catEventual(catId) {
+  const c = _categorias.find(x => x.id === Number(catId));
+  return (c && c.rrhh_eventual_id) ? c : null;
+}
+function _eventualCategoriaCambio() {
+  const row = document.getElementById('row-eventual'); if (!row) return;
+  const ev = _catEventual(document.getElementById('f-categoria')?.value);
+  row.style.display = (ev && _tipoCarga === 'egreso') ? '' : 'none';
+  if (!ev) return;
+  // Lleva recibo firmado (se le paga en mano): no factura ni depósito
+  if (_respaldoCarga !== 'recibo') setRespaldo('recibo');
+  const imp = document.getElementById('f-importe');
+  if (imp && !imp._evWired) { imp._evWired = true; imp.addEventListener('input', () => _eventualRecalc(false)); }
+  const f = document.getElementById('f-fecha')?.value || hoyISO();
+  const d = document.getElementById('f-ev-desde'), h = document.getElementById('f-ev-hasta');
+  if (!d.value) d.value = f;
+  if (!h.value) h.value = d.value;
+  _eventualRecalc(true);
+}
+function _eventualSpan(d, h) {
+  if (!d || !h) return 0;
+  return Math.round((new Date(h + 'T12:00:00') - new Date(d + 'T12:00:00')) / 86400000) + 1;
+}
+function _eventualRecalc(resetDias) {
+  const d = document.getElementById('f-ev-desde')?.value, h = document.getElementById('f-ev-hasta')?.value;
+  const inDias = document.getElementById('f-ev-dias'), av = document.getElementById('f-ev-aviso');
+  const span = _eventualSpan(d, h);
+  if (resetDias && span > 0) inDias.value = span;
+  if (inDias && span > 0) inDias.max = span;
+  const dias = Number(inDias?.value || 0);
+  const imp = Math.abs(nmParse(document.getElementById('f-importe')?.value || '0')) || 0;
+  let txt = '';
+  if (span <= 0) txt = '⚠ La fecha "hasta" no puede ser anterior a "desde".';
+  else if (span > 31) txt = '⚠ Un pago cubre como máximo un mes.';
+  else if (dias < 1 || dias > span) txt = `⚠ Los días trabajados tienen que estar entre 1 y ${span}.`;
+  else {
+    const mesD = d.slice(0, 7), mesH = h.slice(0, 7);
+    txt = `${dias} día${dias === 1 ? '' : 's'}${imp ? ' · $' + Math.round(imp / dias).toLocaleString('es-AR') + ' por día' : ''}. `
+        + (mesD === mesH ? 'Va a la liquidación de ese mes.' : 'Cruza de mes: se reparte entre los dos meses según los días de cada uno.');
+  }
+  if (av) av.textContent = txt;
+}
+function _eventualLeer() {
+  const d = document.getElementById('f-ev-desde')?.value, h = document.getElementById('f-ev-hasta')?.value;
+  const dias = Number(document.getElementById('f-ev-dias')?.value || 0);
+  const span = _eventualSpan(d, h);
+  if (!d || !h) throw new Error('Cargá los días que cubre el pago (desde y hasta)');
+  if (span <= 0) throw new Error('La fecha "hasta" es anterior a "desde"');
+  if (span > 31) throw new Error('Un pago cubre como máximo un mes: partilo en dos');
+  if (!(dias >= 1 && dias <= span)) throw new Error(`Los días trabajados tienen que estar entre 1 y ${span}`);
+  return { desde: d, hasta: h, dias, cargado_por: session.email || '', cargado_at: new Date().toISOString() };
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -2319,6 +2409,11 @@ async function guardarMovimiento() {
         descripcion: desc, origen: 'manual',
         cargado_por: session.email,
       };
+      // (28-sep) Pago a personal eventual: los días que cubre van a la liquidación
+      if (_tipoCarga === 'egreso' && _catEventual(categoriaId)) {
+        if (_respaldoCarga !== 'recibo') throw new Error('El pago a ' + _catEventual(categoriaId).nombre.replace(/^Pago /,'') + ' lleva recibo firmado');
+        data.extra = { eventual: _eventualLeer() };
+      }
       // Respaldo por FACTURA adjunta (jul 2026): sube la foto/PDF al bucket,
       // no requiere firma, y el VPS se la manda por mail a administración
       // (claudiaadorno@claudiaadorno.com) para el circuito contable.
@@ -3305,7 +3400,7 @@ if ('serviceWorker' in navigator) {
   }, true);
 })();
 </script>
-<script src="manual.js?v=15"></script>
+<script src="manual.js?v=16"></script>
 <script>
 // (24-ago) Blindaje iOS: re-suscripcion automatica de push. iOS suelta la
 // suscripcion silenciosamente cada tanto; si el permiso sigue concedido y

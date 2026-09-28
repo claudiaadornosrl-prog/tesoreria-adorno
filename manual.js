@@ -64,6 +64,8 @@ function _manualSecciones() {
         'La factura se envía sola a Anita para contabilizarla; el comprobante de depósito va a Marisa, que concilia los depósitos. Vos no tenés que mandar nada por mail.',
         'Las facturas y los comprobantes de depósito se guardan solos en el OneDrive (cada hora): la factura entra a CONTABILIZAR / 1 - SIN CONTABILIZAR y el depósito al archivero del mes. No hace falta mandar nada por mail.',
         'Si administración rechaza el archivo (foto equivocada, ilegible) te llega un aviso y el movimiento muestra "↩ Volver a subir": tocá ✏️, adjuntá el archivo correcto y listo.',
+        '👤 Pago a Nora (cubre días en Alcorta o Unicenter): egreso de tu caja con la categoría "Pago Nora" y recibo firmado. Aparece el recuadro 📅 "Días que cubre este pago": cargá desde / hasta (inclusive) y cuántos días trabajó. Esos días deciden el MES de la liquidación de sueldos (no la fecha en que le pagaste) y tu caja decide el LOCAL. Si una semana cruza de mes, el sistema la reparte sola entre los dos meses.',
+        'Si te equivocaste en los días, tocá ✏️ en el movimiento y corregilos: se puede aunque el recibo ya esté firmado.',
       ],
     });
     items.push({
