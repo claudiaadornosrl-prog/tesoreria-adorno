@@ -102,6 +102,7 @@ function _manualSecciones() {
         'Ojo con proveedores de importe fijo mensual: si el bot no está seguro de que un pago viejo corresponda a la factura nueva, la deja "por confirmar" en vez de pagarla — confirmala vos.',
         'Cuando el bot del banco detecta la transferencia, el pago se marca PAGADO solo (matchea por CUIT, importe y fecha ±7 días). Si el sistema no está seguro, queda "por confirmar" y lo confirmás o rechazás vos.',
         'Filtros arriba: Pendientes / Solo pagados / Todos, y orden por vencimiento, importe o proveedor.',
+        'Rango de fechas (Vence ... a ...): muestra solo los pagos que vencen entre esas dos fechas. Podés completar una sola (solo "desde" o solo "hasta"); la ✕ lo quita. Se combina con los demás filtros y con el buscador.',
         'Buscador: escribí tranquila la palabra entera — busca cuando dejás de tipear (medio segundo) o al apretar Enter.',
         'Todos los días a las 8 le llega a JP el aviso de lo que vence hoy y el próximo día hábil.',
       ],
