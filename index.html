@@ -2078,7 +2078,7 @@ function renderCargar() {
             <input type="file" id="f-factura" accept="image/*,application/pdf" capture="environment"
                    style="width:100%;padding:10px;border:2px dashed var(--border);border-radius:8px;background:#f9fafb;">
             <div style="font-size:11px;color:var(--muted);margin-top:4px;">
-              <span id="aviso-adjunto">📬 La factura se envía automáticamente a administración para su contabilización.</span>
+              <span id="aviso-adjunto">📁 La factura queda archivada sola en el OneDrive, en CONTABILIZAR › 1 - SIN CONTABILIZAR, para que administración la contabilice.</span>
             </div>
           </div>
           ${esGerente ? `
@@ -2213,8 +2213,8 @@ function setRespaldo(r) {
   const lbl = document.getElementById('lbl-adjunto'), av = document.getElementById('aviso-adjunto');
   if (lbl) lbl.textContent = r === 'deposito' ? 'Foto o PDF del comprobante de depósito' : 'Foto o PDF de la factura';
   if (av)  av.textContent  = r === 'deposito'
-      ? '📬 El comprobante se envía automáticamente a Marisa (administración).'
-      : '📬 La factura se envía automáticamente a administración para su contabilización.';
+      ? '📁 El comprobante queda archivado solo en el OneDrive, en RECIBOS Y RETIROS LOCALES del mes, a nombre del movimiento.'
+      : '📁 La factura queda archivada sola en el OneDrive, en CONTABILIZAR › 1 - SIN CONTABILIZAR, para que administración la contabilice.';
 }
 function setTipoCarga(tipo) {
   _tipoCarga = tipo;
@@ -2594,8 +2594,8 @@ async function guardarMovimiento() {
       if (error) throw error;
       if (data.respaldo_tipo === 'factura' || data.respaldo_tipo === 'deposito') {
         toast(data.respaldo_tipo === 'deposito'
-              ? '✓ Cargado · el comprobante se envía a Marisa'
-              : '✓ Cargado · la factura se envía a administración');
+              ? '✓ Cargado · el comprobante se archiva en el OneDrive'
+              : '✓ Cargado · la factura se archiva en SIN CONTABILIZAR');
         if (session.soloComprobantes) { renderCargar(); return; }
         cambiarTab('dashboard');
         cargar();
