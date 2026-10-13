@@ -710,6 +710,12 @@ async function cargar() {
     // Saldos por cuenta (la RLS filtra para gerente)
     const { data: saldos } = await sb.from('tesoreria_saldos').select('*');
     _cuentas = saldos || [];
+    // (13-oct, JP) hora del último saldo informado por el banco/MP/PPI, para avisar si está viejo
+    try {
+      const { data: hs } = await sb.from('tesoreria_cuentas').select('id,saldo_banco_at');
+      const mapa = Object.fromEntries((hs || []).map(x => [x.id, x.saldo_banco_at]));
+      _cuentas.forEach(c => { c.saldo_banco_at = mapa[c.id] || null; });
+    } catch (_) {}
     // Categorías
     const { data: cats } = await sb.from('tesoreria_categorias')
       .select('*').eq('activa', true).order('orden_display');
@@ -1146,6 +1152,15 @@ async function generarPDFEgreso(movId) {
 // ═══════════════════════════════════════════════════════════════════════
 // DASHBOARD: saldos agrupados
 // ═══════════════════════════════════════════════════════════════════════
+// (13-oct, JP) "actualizado hace X" en las cuentas que alimenta un bot (banco, MP, PPI, fondos):
+//  gris si es reciente, rojo si pasaron más de 12 h (el bot no corrió o falló). Las cajas no lo muestran.
+function _actualizadoHace(c){
+  if (!c || c._virtual || c.tipo === 'caja' || !c.saldo_banco_at) return '';
+  const min = Math.max(0, (Date.now() - new Date(c.saldo_banco_at).getTime()) / 60000);
+  const txt = min < 60 ? `hace ${Math.round(min)} min` : min < 48 * 60 ? `hace ${Math.round(min / 60)} h` : `hace ${Math.round(min / 1440)} días`;
+  const viejo = min > 12 * 60;
+  return ` <span style="font-size:11px;color:${viejo ? '#dc2626' : 'var(--muted)'};font-weight:${viejo ? '700' : '400'};" title="Último saldo informado por el banco/MP: ${new Date(c.saldo_banco_at).toLocaleString('es-AR')}${viejo ? ' · pasaron más de 12 h: revisá el bot' : ''}">· ${viejo ? '⚠ ' : ''}actualizado ${txt}</span>`;
+}
 function renderDashboard() {
   const cont = document.getElementById('contenido');
   if (_cuentas.length === 0) {
@@ -1224,7 +1239,7 @@ function renderDashboard() {
               <div onclick="${onClick}" style="cursor:pointer;">
                 <div class="cuenta-nombre">${c.icono||'💵'} ${escHtml(c.nombre)} ${c._virtual ? '<span style="font-size:11px;color:var(--muted);">▸</span>' : ''}</div>
                 <div class="cuenta-saldo ${Number(c.saldo) < 0 ? 'negativo' : ''}">${fmt$(c.saldo, c.moneda)}</div>
-                <div class="cuenta-moneda">${c.moneda}</div>
+                <div class="cuenta-moneda">${c.moneda}${_actualizadoHace(c)}</div>
               </div>
               ${!c._virtual ? `
                 <button onclick="event.stopPropagation();setCuentaDefaultDesdeSaldos(${c.id})"
@@ -1282,7 +1297,7 @@ function verInversionesDe(grupo, moneda) {
               <div onclick="verMovimientosCuenta(${c.id})" style="cursor:pointer;">
                 <div class="cuenta-nombre">${meta.icono} ${escHtml(meta.nombre)}</div>
                 <div class="cuenta-saldo ${Number(c.saldo) < 0 ? 'negativo' : ''}">${fmt$(c.saldo, c.moneda)}</div>
-                <div class="cuenta-moneda">${c.moneda}</div>
+                <div class="cuenta-moneda">${c.moneda}${_actualizadoHace(c)}</div>
               </div>
               <button onclick="event.stopPropagation();setCuentaDefaultDesdeSaldos(${c.id})"
                 title="${localStorage.getItem(LS_CTA_DEFAULT) == c.id ? 'Quitar como caja predeterminada' : 'Abrir Movimientos siempre en esta caja (este dispositivo)'}"
