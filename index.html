@@ -640,7 +640,7 @@ function enterApp() {
   document.getElementById('login-screen').classList.remove('active');
   document.getElementById('app-screen').classList.add('active');
   document.getElementById('hdr-sub').textContent = '· ' + (
-    session.rol === 'admin' ? 'Admin · ' + session.email :
+    session.rol === 'admin' ? 'Admin' :  // (13-oct, JP) sin el mail: empujaba los íconos del header
     session.localGerencia === 'oficina' ? 'Oficina (admin)' :
     session.esCajera ? 'Cajera · ' + (session.localGerencia || '') :
     (session.soloComprobantes && session.miCaja) ? 'Comprobantes · ' + (session.localGerencia || '') :
@@ -3623,7 +3623,7 @@ if ('serviceWorker' in navigator) {
   }, true);
 })();
 </script>
-<script src="manual.js?v=21"></script>
+<script src="manual.js?v=22"></script>
 <script>
 // (24-ago) Blindaje iOS: re-suscripcion automatica de push. iOS suelta la
 // suscripcion silenciosamente cada tanto; si el permiso sigue concedido y
