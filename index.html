@@ -312,6 +312,29 @@ main { padding: 16px; max-width: 1400px; margin: 0 auto; }
 .toolbar .spacer { flex: 1; }
 .toolbar button.primary { background: var(--primary); color: white; border: none; padding: 8px 14px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; }
 .toolbar button.primary:hover { background: var(--primary-dark); }
+/* (13-oct-2026, JP) barras en un solo renglón: controles chicos, botones solo ícono con tooltip */
+.toolbar.compacta { padding: 8px 10px; gap: 6px; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+.toolbar.compacta::-webkit-scrollbar { display: none; }
+.toolbar.compacta select, .toolbar.compacta input { padding: 6px 8px; font-size: 12.5px; min-width: 0; }
+.toolbar.compacta input[type=date] { width: 128px; }
+.toolbar.compacta input[type=search] { flex: 1; min-width: 150px; }
+.ibtn { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border: 1px solid var(--border); border-radius: 8px; background: white; color: var(--text); cursor: pointer; flex: none; padding: 0; }
+.ibtn:hover { background: #f3f4f6; }
+.ibtn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+.ibtn.primary:hover { background: var(--primary-dark); }
+.ibtn .ico { width: 18px; height: 18px; }
+.ibtn .ico.s { width: 15px; height: 15px; }
+.ayuda { display: inline-flex; color: var(--muted); cursor: help; vertical-align: middle; }
+.form-grid.compacta { gap: 8px 10px; }
+.form-grid.compacta .form-row label { font-size: 11px; margin-bottom: 2px; }
+.form-grid.compacta .form-row input, .form-grid.compacta .form-row select, .form-grid.compacta .form-row textarea { padding: 6px 9px; font-size: 13px; }
+.form-grid.compacta .form-row textarea { min-height: 40px; }
+.form-grid.compacta .btn-secondary { padding: 6px 8px; font-size: 12.5px; }
+.pp-fila { display: grid; grid-template-columns: 84px 1fr 130px auto; gap: 12px; align-items: center; padding: 8px 12px; border-bottom: 1px solid #f3f4f6; border-left: 4px solid transparent; cursor: pointer; }
+.pp-fila:nth-child(even) { background: #fafafa; }
+.pp-fila:hover { background: #fff7ed; }
+.bot-fila { display: flex; align-items: center; gap: 12px; padding: 9px 14px; border-bottom: 1px solid #f3f4f6; flex-wrap: wrap; }
+.bot-fila:last-child { border-bottom: none; }
 
 .table-wrap { background: white; border-radius: 10px; box-shadow: var(--shadow); overflow: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 800px; }
@@ -624,8 +647,8 @@ function enterApp() {
     'Encargada · ' + (session.localGerencia || '')
   );
   // (9-sep) la pestaña de carga se llama según lo que puede hacer el usuario
-  { const b = document.getElementById('tab-cargar'); const t = session.soloComprobantes ? 'Comprobantes' : 'Recibos';
-    b.querySelector('.lb').textContent = t; b.title = t; }
+  // (13-oct, JP) la pestaña se llama Comprobantes para todos
+  { const b = document.getElementById('tab-cargar'); b.querySelector('.lb').textContent = 'Comprobantes'; b.title = 'Comprobantes'; }
   // ── Visibilidad de tabs por rol ──
   // "Oficina" = admin, gerente de oficina, o Marisa/Analía (mismo par de
   // emails que tesoreria_es_admin_oficina() en la DB — mantener sincronizado).
@@ -640,8 +663,8 @@ function enterApp() {
     // Lo que hay que bloquear son vendedoras y usuarios genéricos de local,
     // para que no puedan tocar la caja (ver rama de abajo).
     document.getElementById('tab-cargar').style.display = '';
-    // (10-ago) fix: Pendientes firma quedaba display:none para siempre
-    document.getElementById('tab-firma').style.display = '';
+    // (13-oct, JP) Pendientes de firma se controla desde el módulo Documentos: pestaña oculta
+    document.getElementById('tab-firma').style.display = 'none';
   } else {
     // Locales: solo Saldos + Movimientos (+ Recibos según quién sea).
     // TODO explícito: si antes entró un admin en este mismo navegador, los
@@ -743,11 +766,11 @@ async function renderTransferencias() {
   const miLocal = session.localGerencia || session.local || '';
   cont.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
-      <div>
-        <h2 style="margin:0;">💸 Transferencias recibidas en Mercado Pago</h2>
-        <div style="color:var(--muted);font-size:13px;margin-top:4px;">Últimas 48 horas · lo que entró al CVU/alias de la empresa (no los cobros por QR ni Point, esos los ven en su cuenta). MP no informa quién transfirió: comparalo con el comprobante del cliente por <b>importe y hora</b>.</div>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <h2 style="margin:0;font-size:17px;">💸 Transferencias recibidas en Mercado Pago <span style="font-size:12px;color:var(--muted);font-weight:500;">últimas 48 h</span></h2>
+        <span class="ayuda" title="Lo que entró al CVU/alias de la empresa en las últimas 48 horas (no los cobros por QR ni Point, esos los ven en su cuenta). MP no informa quién transfirió: comparalo con el comprobante del cliente por importe y hora. Las transferencias entran solas cada 15 minutos y desaparecen de esta lista cuando un local toca ✔ Es mía o a las 48 horas. Si el cliente dice que ya transfirió y no aparece, tocá Verificar ahora: consulta Mercado Pago en el momento."><svg class="ico s" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg></span>
       </div>
-      <button class="btn-primary" id="btn-verif-transf" onclick="verificarTransferenciasAhora()">🔄 Verificar ahora</button>
+      <button class="ibtn primary" id="btn-verif-transf" onclick="verificarTransferenciasAhora()" title="Verificar ahora: consulta Mercado Pago en el momento"><svg class="ico s" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg></button>
     </div>
     ${filas.length === 0 ? '<div class="empty"><div class="icon">💸</div>No hay transferencias libres en las últimas 48 horas (las que ya se reclamaron con ✔ Es mía no se muestran).</div>' : `
     <div class="tabla-wrap"><table class="tabla">
@@ -770,12 +793,12 @@ async function renderTransferencias() {
         }).join('')}
       </tbody>
     </table></div>`}
-    <div style="color:var(--muted);font-size:12px;margin-top:10px;">Las transferencias entran solas cada 15 minutos y desaparecen de esta lista cuando un local toca <b>✔ Es mía</b> o a las 48 horas. Si el cliente dice que ya transfirió y no aparece, tocá <b>🔄 Verificar ahora</b>: consulta Mercado Pago en el momento.</div>`;
+    `;
 }
 
 async function verificarTransferenciasAhora() {
   const b = document.getElementById('btn-verif-transf');
-  if (b) { b.disabled = true; b.textContent = '⏳ Consultando MP…'; }
+  if (b) { b.disabled = true; b.style.opacity = '.5'; b.title = 'Consultando MP…'; }
   try {
     const { data, error } = await sb.functions.invoke('sync-mp-on-demand', { body: { minutes_back: 180 } });
     if (error) throw error;
@@ -1129,9 +1152,9 @@ function renderDashboard() {
     cont.innerHTML = `<div class="empty"><div class="icon">💰</div>No tenés acceso a ninguna cuenta. Pedile al admin que te dé permisos.</div>`;
     return;
   }
-  // Agrupar
+  // Agrupar. (13-oct, JP) la Caja Oficina no va en Saldos: en Oficina no se maneja efectivo
   const grupos = {};
-  _cuentas.forEach(c => {
+  _cuentas.filter(c => !(c.tipo === 'caja' && c.local === 'oficina')).forEach(c => {
     const g = c.grupo || 'Sin grupo';
     if (!grupos[g]) grupos[g] = [];
     grupos[g].push(c);
@@ -1471,26 +1494,16 @@ async function renderMovimientos() {
   const cuentasOpt = _cuentas.map(c => `<option value="${c.id}" ${_movFiltroCuenta==c.id?'selected':''}>${escHtml(c.nombre)}</option>`).join('');
 
   cont.innerHTML = `
-    <div class="toolbar">
-      <label style="font-size:12px;color:var(--muted);">Cuenta:</label>
-      <select id="mov-cuenta" onchange="_movFiltroCuenta=this.value||null; renderMovimientos();">
-        <option value="">Todas</option>${cuentasOpt}
+    <div class="toolbar compacta">
+      <select id="mov-cuenta" title="Cuenta" onchange="_movFiltroCuenta=this.value||null; renderMovimientos();">
+        <option value="">Todas las cuentas</option>${cuentasOpt}
       </select>
-      <button onclick="toggleCuentaDefault()" title="${esDefault ? 'Quitar como predeterminada' : 'Abrir siempre en esta caja (en este dispositivo)'}"
-              style="background:none;border:1px solid var(--border);border-radius:8px;padding:6px 9px;cursor:pointer;font-size:15px;${_movFiltroCuenta ? '' : 'opacity:0.35;pointer-events:none;'}">
-        ${esDefault ? '⭐' : '☆'}
-      </button>
-      <label style="font-size:12px;color:var(--muted);">Desde:</label>
-      <input type="date" id="mov-desde" value="${_movFiltroDesde}" onchange="_movFiltroDesde=this.value; renderMovimientos();">
-      <label style="font-size:12px;color:var(--muted);">Hasta:</label>
-      <input type="date" id="mov-hasta" value="${_movFiltroHasta}" onchange="_movFiltroHasta=this.value; renderMovimientos();">
-      <input type="search" id="mov-buscar" placeholder="🔎 Importe, proveedor, descripción…" value="${escHtml(_movBusca)}"
-             oninput="_movBusca=this.value; filtrarMovsLocal();"
-             style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;min-width:190px;">
-      <button onclick="exportarMovsExcel()" title="Descargar lo filtrado en Excel"
-              style="background:none;border:1px solid var(--border);border-radius:8px;padding:6px 10px;cursor:pointer;font-size:13px;">⬇ Excel</button>
-      <div class="spacer"></div>
-      <button class="primary" onclick="cambiarTab('cargar')">➕ Cargar movimiento</button>
+      <button class="ibtn" onclick="toggleCuentaDefault()" title="${esDefault ? 'Quitar como predeterminada' : 'Abrir siempre en esta cuenta (en este dispositivo)'}" style="${_movFiltroCuenta ? '' : 'opacity:0.35;pointer-events:none;'}">${esDefault ? '⭐' : '☆'}</button>
+      <input type="date" id="mov-desde" title="Desde" value="${_movFiltroDesde}" onchange="_movFiltroDesde=this.value; renderMovimientos();">
+      <input type="date" id="mov-hasta" title="Hasta" value="${_movFiltroHasta}" onchange="_movFiltroHasta=this.value; renderMovimientos();">
+      <input type="search" id="mov-buscar" placeholder="🔎 Importe, proveedor, descripción…" value="${escHtml(_movBusca)}" oninput="_movBusca=this.value; filtrarMovsLocal();">
+      <button class="ibtn" onclick="exportarMovsExcel()" title="Descargar lo filtrado en Excel"><svg class="ico s" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><path d="M8 13l8 6M16 13l-8 6"/></svg></button>
+      <button class="ibtn primary" onclick="cambiarTab('cargar')" title="Cargar un movimiento a mano (ingreso, egreso o transferencia)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
     </div>
     <div id="mov-lista"><div class="empty"><div class="spinner"></div></div></div>
   `;
@@ -2046,11 +2059,10 @@ function renderCargar() {
 
   cont.innerHTML = `
     <div class="card" style="max-width:680px;margin:0 auto;">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
         <h3 class="card-title" style="margin:0;">➕ Cargar movimiento</h3>
-        ${session.verTodo ? `<button class="btn-secondary" style="font-size:12px;padding:6px 10px;" onclick="abrirImportarPaste()">📋 Pegar tabla del banco</button>` : ''}
       </div>
-      <div class="form-row" style="margin-bottom:14px;">
+      <div class="form-row" style="margin-bottom:10px;">
         <label>Tipo</label>
         <div style="display:flex;gap:8px;">
           <button onclick="setTipoCarga('ingreso')" id="ti-ingreso" class="btn-secondary" style="flex:1;">⬆ Ingreso</button>
@@ -2059,7 +2071,7 @@ function renderCargar() {
         </div>
       </div>
       <div id="form-fields">
-        <div class="form-grid">
+        <div class="form-grid compacta">
           <div class="form-row"><label>Fecha</label><input type="date" id="f-fecha" value="${hoyISO()}"></div>
           <div class="form-row"><label>Importe</label><input type="text" inputmode="decimal" id="f-importe" placeholder="0" onfocus="wireImporte(this)"></div>
           <div class="form-row"><label>${esGerente ? 'Caja' : 'Cuenta (de donde sale/entra)'}</label>
@@ -2134,7 +2146,7 @@ async function renderCargarComprobante() {
       <h3 class="card-title" style="margin:0 0 6px;">🧺 Subir comprobante · ${escHtml(caja.nombre)}</h3>
       <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">Pagaste algo con plata de la caja: cargá el importe y sacale foto a la factura/ticket, o al comprobante si fue un depósito bancario. Se descuenta de la caja y va a administración.</div>
       <div id="form-fields">
-        <div class="form-grid">
+        <div class="form-grid compacta">
           <div class="form-row"><label>Fecha</label><input type="date" id="f-fecha" value="${hoyISO()}"></div>
           <div class="form-row"><label>Importe</label><input type="text" inputmode="decimal" id="f-importe" placeholder="0" onfocus="wireImporte(this)"></div>
           <input type="hidden" id="f-cuenta" value="${caja.id}">
@@ -2649,38 +2661,24 @@ async function renderScrapers() {
   const { data: scrapers, error } = await sb.rpc('tesoreria_bots_estado');
   if (error) { cont.innerHTML = `<div class="empty">Error: ${escHtml(error.message)}</div>`; return; }
   cont.innerHTML = `
-    <div class="card" style="background:#fef3c7;border-left:4px solid #f59e0b;padding:12px;">
-      <div style="font-size:13px;font-weight:600;color:#92400e;">🤖 Scrapers — credenciales para bajar info bancaria automáticamente</div>
-      <div style="font-size:12px;color:#a16207;margin-top:4px;">
-        Corren solos en el servidor (VPS), 24/7. Acá podés editar las credenciales (cifradas), ver el último estado y forzar una corrida — tarda hasta 5 minutos en arrancar.
-      </div>
+    <div class="card" style="padding:0;">
+      <div style="display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--border);font-size:13px;font-weight:700;">🤖 Bots
+        <span class="ayuda" title="Corren solos en el servidor (VPS), las 24 horas. Acá se ve el último estado de cada uno, se fuerza una corrida (tarda hasta 5 minutos en arrancar) y el administrador edita las credenciales, que quedan cifradas."><svg class="ico s" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg></span></div>
+      ${(scrapers||[]).map(s => { const enCola = s.activo && s.proximo_run && new Date(s.proximo_run) <= new Date();
+        return `<div class="bot-fila">
+          <span style="width:9px;height:9px;border-radius:50%;flex:none;background:${!s.activo ? '#cbd5e1' : s.ultimo_run_ok === false ? '#dc2626' : '#16a34a'};" title="${!s.activo ? 'Inactivo' : s.ultimo_run_ok === false ? 'Última corrida falló' : 'OK'}"></span>
+          <div style="min-width:150px;"><b style="font-size:13.5px;">${escHtml(s.nombre)}</b> <span style="font-size:11.5px;color:var(--muted);">· ${escHtml(s.servicio)}</span></div>
+          <div style="flex:1;min-width:220px;font-size:12px;color:var(--muted);">
+            ${s.ultimo_run ? `Última: ${new Date(s.ultimo_run).toLocaleString('es-AR', {dateStyle:'short', timeStyle:'short'})} ${s.ultimo_run_ok ? '✓' : '<span style="color:var(--red);">✗ falló</span>'}` : 'Nunca corrió'}
+            ${enCola ? ` · <span style="color:#b45309;font-weight:600;">⏳ en cola</span>` : (s.activo && s.proximo_run ? ` · próxima ${new Date(s.proximo_run).toLocaleString('es-AR', {dateStyle:'short', timeStyle:'short'})}` : '')}
+            ${s.ultimo_error ? `<div style="color:var(--red);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${escHtml(s.ultimo_error)}">${escHtml(s.ultimo_error.slice(0,120))}</div>` : ''}
+          </div>
+          <div style="display:flex;gap:4px;">
+            ${s.activo ? `<button class="ibtn primary" title="Ejecutar ahora (tarda hasta 5 min en arrancar)" onclick="ejecutarScraperAhora(${s.id}, '${escHtml(s.nombre)}')"><svg class="ico s" viewBox="0 0 24 24" aria-hidden="true"><polygon points="6 4 20 12 6 20 6 4"/></svg></button>` : ''}
+            ${session.rol === 'admin' ? `<button class="ibtn" title="Editar credenciales" onclick="abrirEditarScraper(${s.id})"><svg class="ico s" viewBox="0 0 24 24" aria-hidden="true"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg></button>` : ''}
+          </div>
+        </div>`; }).join('')}
     </div>
-    ${(scrapers||[]).map(s => `
-      <div class="card">
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;">
-          <div>
-            <div style="font-size:15px;font-weight:700;">${escHtml(s.nombre)}</div>
-            <div style="font-size:12px;color:var(--muted);margin-top:2px;">${escHtml(s.servicio)}</div>
-            <div style="font-size:11px;color:var(--muted);margin-top:6px;">
-              ${s.ultimo_run
-                ? `Último run: ${new Date(s.ultimo_run).toLocaleString('es-AR')} · ${s.ultimo_run_ok ? '✓ OK' : '✗ FALLÓ'}`
-                : 'Nunca corrió'}
-              ${s.ultimo_error ? `<br><span style="color:var(--red);">${escHtml(s.ultimo_error.slice(0,200))}</span>` : ''}
-              ${s.activo && s.proximo_run && new Date(s.proximo_run) <= new Date()
-                ? `<br><span style="color:#b45309;font-weight:600;">⏳ En cola — esperando que la PC lo corra</span>`
-                : (s.activo && s.proximo_run
-                    ? `<br>Próximo run: ${new Date(s.proximo_run).toLocaleString('es-AR')}`
-                    : '')}
-            </div>
-          </div>
-          <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;">
-            <div style="font-size:11px;font-weight:600;color:${s.activo?'#065f46':'#991b1b'};">${s.activo?'✓ ACTIVO':'✗ INACTIVO'}</div>
-            ${s.activo ? `<button class="btn-primary" style="width:auto;padding:8px 14px;" onclick="ejecutarScraperAhora(${s.id}, '${escHtml(s.nombre)}')">▶️ Ejecutar ahora</button>` : ''}
-            ${session.rol === 'admin' ? `<button class="btn-secondary" onclick="abrirEditarScraper(${s.id})">✏️ Editar credenciales</button>` : ''}
-          </div>
-        </div>
-      </div>
-    `).join('')}
   `;
 }
 
@@ -3015,43 +3013,41 @@ async function renderPagosPendientes(soloFiltro) {
         <div style="font-size:22px;font-weight:800;color:var(--primary-dark);margin-top:4px;">${fmtMoneda(totalPos + totalNeg, 'ARS')}</div>
       </div>
     </div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px;background:white;padding:10px 14px;border-radius:10px;box-shadow:var(--shadow);">
-      <div style="position:relative;flex:1;min-width:220px;">
+    <div class="toolbar compacta" style="margin-bottom:12px;">
+      <div style="position:relative;flex:1;min-width:170px;">
         <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#94a3b8;font-size:14px;">🔍</span>
         <input id="pp-buscador" type="search" placeholder="Buscar concepto, proveedor, importe…" value="${escHtml(_filtroTexto||'')}"
                oninput="_ppBuscar(this.value)" onkeydown="if(event.key==='Enter')_ppBuscar(this.value,true)"
-               style="width:100%;padding:7px 10px 7px 32px;border:1px solid var(--border);border-radius:6px;font-size:13px;box-sizing:border-box;">
+               style="width:100%;padding:6px 10px 6px 30px;border:1px solid var(--border);border-radius:6px;font-size:12.5px;box-sizing:border-box;">
         ${_filtroTexto ? `<button onclick="_ppBuscar('',true)" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);background:#f1f5f9;color:#475569;border:none;border-radius:4px;padding:3px 8px;font-size:11px;cursor:pointer;" title="Limpiar">✕</button>` : ''}
       </div>
-      <select onchange="_filtroCategoria=this.value;renderPagosPendientes();" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
-        <option value="">Todas las categorías</option>
+      <select onchange="_filtroCategoria=this.value;renderPagosPendientes();" title="Categoría">
+        <option value="">Categorías</option>
         ${Object.entries(CAT_LABELS).map(([k,v]) => `<option value="${k}" ${_filtroCategoria===k?'selected':''}>${v}</option>`).join('')}
       </select>
-      <select onchange="_filtroLocal=this.value;renderPagosPendientes();" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
-        <option value="">Todos los locales</option>
+      <select onchange="_filtroLocal=this.value;renderPagosPendientes();" title="Local">
+        <option value="">Locales</option>
         ${[...new Set(['general','alcorta','unicenter','oficina', ..._pagosPendientesCache.map(p => p.local).filter(Boolean)])].map(l =>
           `<option value="${escHtml(l)}" ${_filtroLocal===l?'selected':''}>${escHtml(l.charAt(0).toUpperCase()+l.slice(1))}</option>`).join('')}
       </select>
-      <select onchange="_filtroEstado=this.value;renderPagosPendientes();" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
+      <select onchange="_filtroEstado=this.value;renderPagosPendientes();" title="Estado">
         <option value="pendientes" ${_filtroEstado==='pendientes'?'selected':''}>Pendientes</option>
         <option value="pagados" ${_filtroEstado==='pagados'?'selected':''}>Solo pagados</option>
         <option value="todos" ${_filtroEstado==='todos'?'selected':''}>Mostrar todos</option>
       </select>
-      <span style="display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--muted);" title="Filtra por fecha de vencimiento">Vence
-        <input type="date" value="${_filtroDesde}" onchange="_ppFecha('desde', this.value)" style="padding:5px 6px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
-        a
-        <input type="date" value="${_filtroHasta}" onchange="_ppFecha('hasta', this.value)" style="padding:5px 6px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
+      <span style="display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--muted);" title="Filtra por fecha de vencimiento">
+        <input type="date" value="${_filtroDesde}" title="Vence desde" onchange="_ppFecha('desde', this.value)">
+        <input type="date" value="${_filtroHasta}" title="Vence hasta" onchange="_ppFecha('hasta', this.value)">
         ${(_filtroDesde || _filtroHasta) ? `<button onclick="_filtroDesde='';_filtroHasta='';renderPagosPendientes();" style="background:#f1f5f9;color:#475569;border:none;border-radius:4px;padding:4px 8px;font-size:11px;cursor:pointer;" title="Quitar el rango de fechas">✕</button>` : ''}
       </span>
-      <select onchange="_ordenPendientes=this.value;renderPagosPendientes();" title="Ordenar filas" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
+      <select onchange="_ordenPendientes=this.value;renderPagosPendientes();" title="Ordenar filas">
         <option value="venc_asc" ${_ordenPendientes==='venc_asc'?'selected':''}>↕ Vencimiento ↑</option>
         <option value="venc_desc" ${_ordenPendientes==='venc_desc'?'selected':''}>↕ Vencimiento ↓</option>
         <option value="importe_desc" ${_ordenPendientes==='importe_desc'?'selected':''}>↕ Importe mayor</option>
         <option value="importe_asc" ${_ordenPendientes==='importe_asc'?'selected':''}>↕ Importe menor</option>
         <option value="proveedor" ${_ordenPendientes==='proveedor'?'selected':''}>↕ Proveedor A-Z</option>
       </select>
-      <div style="flex:1;"></div>
-      <button class="btn-primary" style="width:auto;padding:8px 16px;font-size:13px;" onclick="abrirFormNuevoPago()">+ Nuevo pago</button>
+      <button class="ibtn primary" onclick="abrirFormNuevoPago()" title="Nuevo pago pendiente"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
     </div>
     ${(grupos._orden ? ['_orden'] : ['vencido','hoy','esta_semana','este_mes','futuro','pagado','cancelado']).map(u => {
       const items = grupos[u] || [];
@@ -3099,8 +3095,10 @@ function renderPagoItem(p) {
        <button class="btn-secondary" style="font-size:12px;padding:5px 10px;" onclick="event.stopPropagation();abrirEditarPago(${p.id})">✏️</button>
        <button class="btn-secondary" style="font-size:12px;padding:5px 10px;color:#dc2626;border-color:#fca5a5;" onclick="event.stopPropagation();cancelarPago(${p.id})">✗</button>`
     : `<button class="btn-secondary" style="font-size:12px;padding:5px 10px;" onclick="event.stopPropagation();abrirEditarPago(${p.id})">Ver</button>`;
-  return `<div style="display:grid;grid-template-columns:88px 1fr 130px auto;gap:14px;align-items:center;padding:10px 14px;border-bottom:1px solid #f3f4f6;cursor:pointer;" onclick="abrirEditarPago(${p.id})">
-    <div style="font-size:13px;font-weight:700;color:var(--text);text-align:center;line-height:1.2;">${fechaCorta}</div>
+  // (13-oct, JP) color por urgencia en la fila: franja izquierda y fecha del color del grupo
+  const urg = (p.estado === 'pendiente' || p.estado === 'por_confirmar') ? (URGENCIA_CFG[p.estado_urgencia] || URGENCIA_CFG.futuro) : { color: '#cbd5e1' };
+  return `<div class="pp-fila" style="border-left-color:${urg.color};${p.estado === 'pagado' || p.estado === 'cancelado' ? 'opacity:.7;' : ''}" onclick="abrirEditarPago(${p.id})">
+    <div style="font-size:13px;font-weight:700;color:${urg.color};text-align:center;line-height:1.2;">${fechaCorta}</div>
     <div style="min-width:0;">
       <div style="font-weight:600;font-size:13px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escHtml(p.concepto)}</div>
       <div style="font-size:11px;color:var(--muted);margin-top:2px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
@@ -3610,7 +3608,7 @@ if ('serviceWorker' in navigator) {
   }, true);
 })();
 </script>
-<script src="manual.js?v=20"></script>
+<script src="manual.js?v=21"></script>
 <script>
 // (24-ago) Blindaje iOS: re-suscripcion automatica de push. iOS suelta la
 // suscripcion silenciosamente cada tanto; si el permiso sigue concedido y
