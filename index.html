@@ -3412,7 +3412,7 @@ function elegirEmpleada(id) {
     _setVal('f-concepto', 'ADELANTO SUELDO ' + _mesActual() + ' ' + e.nombre.toUpperCase());
     return;
   }
-  cont.innerHTML = `<label style="display:block;margin-top:8px;"><div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600;margin-bottom:3px;">Préstamo (RRHH)</div>
+  cont.innerHTML = `<label style="display:block;margin-top:8px;"><div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600;margin-bottom:3px;">Préstamo (Colaboradores)</div>
     <select style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;box-sizing:border-box;" onchange="elegirPrestamo(this.value)">
     <option value="">Sin préstamo (adelanto u otro pago)</option>
     ${prests.map(p => `<option value="${p.prestamo_id}">Cuota ${p.cuota_numero} de ${p.cuotas_totales} — $${Math.round(p.monto).toLocaleString('es-AR')} (${escHtml(p.mes_descuento || '')})</option>`).join('')}
@@ -3623,7 +3623,7 @@ if ('serviceWorker' in navigator) {
   }, true);
 })();
 </script>
-<script src="manual.js?v=25"></script>
+<script src="manual.js?v=26"></script>
 <script>
 // (24-ago) Blindaje iOS: re-suscripcion automatica de push. iOS suelta la
 // suscripcion silenciosamente cada tanto; si el permiso sigue concedido y
