@@ -659,6 +659,8 @@ function enterApp() {
     // Oficina ve Pendientes y Bots (display explícito, a prueba de caches viejas)
     document.getElementById('tab-pendientes').style.display = '';
     document.getElementById('tab-scrapers').style.display = '';
+    // (v105, JP) el push del health check del VPS trae #scrapers: abrir directo la pestaña Bots
+    if (location.hash === '#scrapers') { currentTab = 'scrapers'; document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === 'scrapers')); }
     // (6-ago, JP) Recibos SÍ se ve desde admin / Oficina / Marisa / Analía.
     // Lo que hay que bloquear son vendedoras y usuarios genéricos de local,
     // para que no puedan tocar la caja (ver rama de abajo).
@@ -2673,9 +2675,27 @@ async function renderScrapers() {
   cont.innerHTML = '<div class="empty"><div class="spinner"></div></div>';
   // RPC sin credenciales (11-ago): el grupo Oficina ve estado y ejecuta,
   // la tabla real (con usuario/contraseña del banco) sigue siendo solo admin.
-  const { data: scrapers, error } = await sb.rpc('tesoreria_bots_estado');
+  const [{ data: scrapers, error }, hr] = await Promise.all([
+    sb.rpc('tesoreria_bots_estado'),
+    sb.from('vps_health_reportes').select('id,at,ok,resumen,problemas').order('at', { ascending: false }).limit(12),
+  ]);
   if (error) { cont.innerHTML = `<div class="empty">Error: ${escHtml(error.message)}</div>`; return; }
-  cont.innerHTML = `
+  // (v105, JP) Salud del VPS: el reporte del health check que antes solo llegaba como push
+  const reps = hr.data || [], ult = reps[0];
+  const fmtAt = t => new Date(t).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' });
+  const saludHtml = `<div class="card" style="padding:0;margin-bottom:12px;border-left:4px solid ${!ult ? '#cbd5e1' : ult.ok ? '#16a34a' : '#dc2626'};">
+      <div style="display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--border);font-size:13px;font-weight:700;">🩺 Salud del VPS
+        <span class="ayuda" title="Chequeo automático del servidor (scrapers, cron, disco, servicios). Antes llegaba solo como notificación; acá queda el reporte completo de cada corrida. Tocá una fila para leerlo.">ⓘ</span>
+        <span style="flex:1"></span>
+        <span style="font-size:12px;color:var(--muted);">${ult ? `último ${fmtAt(ult.at)} · ${ult.ok ? '<span style="color:#16a34a;font-weight:600">sin problemas</span>' : `<span style="color:#dc2626;font-weight:600">${ult.problemas || ''} problema(s)</span>`}` : 'todavía no llegó ningún reporte'}</span>
+      </div>
+      ${reps.map(r => `<div class="bot-fila" style="cursor:pointer" onclick="verHealthVps(${r.id})" title="Ver el reporte completo">
+          <span style="width:9px;height:9px;border-radius:50%;flex:none;background:${r.ok ? '#16a34a' : '#dc2626'};"></span>
+          <div style="min-width:130px;font-size:12.5px;">${fmtAt(r.at)}</div>
+          <div style="flex:1;font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escHtml(r.resumen || '')}</div>
+        </div>`).join('')}
+    </div>`;
+  cont.innerHTML = saludHtml + `
     <div class="card" style="padding:0;">
       <div style="display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--border);font-size:13px;font-weight:700;">🤖 Bots
         <span class="ayuda" title="Corren solos en el servidor (VPS), las 24 horas. Acá se ve el último estado de cada uno, se fuerza una corrida (tarda hasta 5 minutos en arrancar) y el administrador edita las credenciales, que quedan cifradas."><svg class="ico s" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg></span></div>
@@ -2695,6 +2715,19 @@ async function renderScrapers() {
         </div>`; }).join('')}
     </div>
   `;
+}
+
+async function verHealthVps(id) {
+  const { data, error } = await sb.from('vps_health_reportes').select('*').eq('id', id).single();
+  if (error) { alert(error.message); return; }
+  const ov = document.createElement('div');
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:10040;display:flex;align-items:center;justify-content:center;padding:16px;';
+  ov.onclick = e => { if (e.target === ov) ov.remove(); };
+  ov.innerHTML = `<div style="background:#fff;border-radius:12px;max-width:760px;width:100%;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.25);">
+      <div style="display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid var(--border);font-weight:700;">🩺 Health check · ${new Date(data.at).toLocaleString('es-AR')} · ${data.ok ? '<span style="color:#16a34a">sin problemas</span>' : '<span style="color:#dc2626">' + (data.problemas || '') + ' problema(s)</span>'}
+        <span style="flex:1"></span><button class="btn-secondary" onclick="this.closest('div[style*=fixed]').remove()" style="padding:4px 10px;">✕</button></div>
+      <pre style="margin:0;padding:14px 16px;overflow:auto;font-size:12px;line-height:1.45;white-space:pre-wrap;font-family:ui-monospace,Consolas,monospace;">${escHtml(data.detalle || data.resumen || '')}</pre></div>`;
+  document.body.appendChild(ov);
 }
 
 async function ejecutarScraperAhora(id, nombre) {
@@ -3623,7 +3656,7 @@ if ('serviceWorker' in navigator) {
   }, true);
 })();
 </script>
-<script src="manual.js?v=22"></script>
+<script src="manual.js?v=23"></script>
 <script>
 // (24-ago) Blindaje iOS: re-suscripcion automatica de push. iOS suelta la
 // suscripcion silenciosamente cada tanto; si el permiso sigue concedido y
