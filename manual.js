@@ -113,6 +113,7 @@ function _manualSecciones() {
       pasos: [
         'Ves el estado de cada bot: cuándo corrió por última vez y si terminó bien.',
         '"Ejecutar ahora" lo pone en cola — tarda unos minutos en arrancar.',
+        'Mientras un bot está trabajando, la fila se pone celeste, el robot se mueve y dice "Corriendo ahora" con una barra; la pantalla se actualiza sola cada 15 segundos hasta que termina.',
         'Si un bot falla o se atrasa, a JP le llega una alerta automática — no hace falta vigilarlos.',
       ],
     });
