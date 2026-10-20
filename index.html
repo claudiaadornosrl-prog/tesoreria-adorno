@@ -3596,6 +3596,93 @@ async function guardarPago(id) {
 }
 
 
+
+// ═══════════════════════════════════════════════════════════════════════
+// MINIATURA DEL ADJUNTO (v110, 20-oct-2026, pedido JP): apenas eligen un
+// archivo (foto o PDF) se muestra una vista previa chica debajo del input,
+// para que vean QUÉ están subiendo. Si el PDF es un comprobante generado por
+// el sistema (tiene "CÓDIGO DE SEGUIMIENTO MOV-…"), avisa en rojo.
+// ═══════════════════════════════════════════════════════════════════════
+let _pdfjsCarga = null;
+function _cargarPdfjs() {
+  if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+  if (_pdfjsCarga) return _pdfjsCarga;
+  _pdfjsCarga = new Promise((ok, no) => {
+    const sc = document.createElement('script');
+    sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    sc.onload = () => {
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      ok(window.pdfjsLib);
+    };
+    sc.onerror = () => no(new Error('No se pudo cargar pdf.js'));
+    document.head.appendChild(sc);
+  });
+  return _pdfjsCarga;
+}
+function _cajaMiniatura(input) {
+  let box = input.parentElement.querySelector('.adj-mini');
+  if (!box) {
+    box = document.createElement('div');
+    box.className = 'adj-mini';
+    box.style.cssText = 'margin-top:8px;display:none;';
+    input.insertAdjacentElement('afterend', box);
+  }
+  return box;
+}
+async function previsualizarAdjunto(input) {
+  const box = _cajaMiniatura(input);
+  const file = input.files && input.files[0];
+  if (!file) { box.style.display = 'none'; box.innerHTML = ''; return; }
+  const kb = file.size > 1024 * 1024 ? (file.size / 1048576).toFixed(1) + ' MB' : Math.round(file.size / 1024) + ' KB';
+  box.style.display = '';
+  box.innerHTML = `<div style="display:flex;gap:10px;align-items:flex-start;">
+      <div class="adj-mini-img" style="flex:0 0 auto;width:120px;min-height:80px;border:1px solid var(--border);border-radius:8px;background:#fff;display:flex;align-items:center;justify-content:center;overflow:hidden;color:var(--muted);font-size:11px;">⏳</div>
+      <div style="font-size:12px;line-height:1.5;">
+        <div><strong>${escHtml(file.name)}</strong> · ${kb}</div>
+        <div class="adj-mini-info" style="color:var(--muted);"></div>
+        <div style="color:var(--muted);margin-top:4px;">Mirá la miniatura: tiene que ser ${(input.id === 'em-factura' ? (document.getElementById('em-lbl-archivo')?.textContent || '') : (document.getElementById('lbl-adjunto')?.textContent || '')).toLowerCase().includes('depósito') ? 'el ticket del depósito bancario' : 'la factura o el ticket de compra'}. Si no es, elegí otro archivo.</div>
+      </div></div>`;
+  const img = box.querySelector('.adj-mini-img'), info = box.querySelector('.adj-mini-info');
+  try {
+    if (file.type.startsWith('image/')) {
+      const url = URL.createObjectURL(file);
+      img.innerHTML = `<img src="${url}" style="max-width:120px;max-height:160px;display:block;" onload="URL.revokeObjectURL(this.src)">`;
+      info.textContent = 'Foto';
+    } else if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) {
+      const pdfjs = await _cargarPdfjs();
+      const buf = await file.arrayBuffer();
+      const doc = await pdfjs.getDocument({ data: buf }).promise;
+      const pg = await doc.getPage(1);
+      const vp0 = pg.getViewport({ scale: 1 });
+      const vp = pg.getViewport({ scale: 118 / vp0.width });
+      const cv = document.createElement('canvas');
+      cv.width = Math.ceil(vp.width); cv.height = Math.ceil(vp.height);
+      cv.style.cssText = 'display:block;max-height:160px;';
+      await pg.render({ canvasContext: cv.getContext('2d'), viewport: vp }).promise;
+      img.innerHTML = ''; img.appendChild(cv);
+      info.textContent = 'PDF · ' + doc.numPages + (doc.numPages === 1 ? ' página' : ' páginas');
+      // ¿Es un comprobante generado por el sistema (recibo / retiro)?
+      try {
+        const tc = await pg.getTextContent();
+        const txt = tc.items.map(i => i.str).join(' ');
+        const mov = /MOV-\d{5,}/.exec(txt);
+        if (/SEGUIMIENTO/i.test(txt) && mov) {
+          info.innerHTML += `<div style="color:#dc2626;font-weight:600;margin-top:4px;">⚠ Este PDF es un comprobante del sistema (${escHtml(mov[0])}), no es un ticket ni una factura. Fijate si elegiste el archivo correcto.</div>`;
+        }
+      } catch (_) { /* sin texto: no se puede saber */ }
+    } else {
+      img.textContent = '📄'; info.textContent = file.type || 'archivo';
+    }
+  } catch (e) {
+    img.textContent = '📄';
+    info.innerHTML = '<span style="color:#b45309;">No se pudo armar la vista previa (' + escHtml(e.message || e) + ').</span>';
+  }
+}
+document.addEventListener('change', ev => {
+  const t = ev.target;
+  if (t && t.tagName === 'INPUT' && t.type === 'file' && (t.id === 'f-factura' || t.id === 'em-factura')) previsualizarAdjunto(t);
+});
+
 // ═══════════════════════════════════════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════════════════════════════════════
@@ -3643,7 +3730,7 @@ if ('serviceWorker' in navigator) {
   }, true);
 })();
 </script>
-<script src="manual.js?v=27"></script>
+<script src="manual.js?v=28"></script>
 <script>
 // (24-ago) Blindaje iOS: re-suscripcion automatica de push. iOS suelta la
 // suscripcion silenciosamente cada tanto; si el permiso sigue concedido y

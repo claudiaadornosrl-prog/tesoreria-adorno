@@ -59,6 +59,7 @@ function _manualSecciones() {
       pasos: [
         'Elegí tipo (ingreso/egreso), importe, categoría y descripción. Tu caja ya viene preseleccionada. La descripción/observación es OBLIGATORIA (qué es, a quién se le pagó, comprobante): sin ella no se guarda.',
         'En egresos elegís el respaldo: 🧾 Recibo firmado (el circuito de siempre), 🧺 Factura/ticket o 🏦 Depósito bancario — en los dos últimos le sacás foto desde el celu y no requiere firma.',
+        'Apenas elegís la foto o el PDF aparece una miniatura debajo: miralá antes de guardar, tiene que ser el ticket o la factura de ESE movimiento. Si adjuntás por error un recibo del sistema (dice MOV-…), el módulo te lo avisa en rojo.',
         'Cualquier empleada o usuario genérico del local puede entrar a Tesorería y ver solo la pestaña 🧺 Comprobantes: carga un egreso de la caja de su local adjuntando foto de factura/ticket o del comprobante de depósito, y ve el estado de lo que subió (rechazado → 📎 Volver a subir). Los recibos firmados siguen siendo solo de cajeras y encargadas.',
         'El respaldo elegido manda para todos los usuarios: si admin u Oficina cargan un egreso de una caja con "Recibo firmado", también sale el PDF con QR para imprimir y firmar. Oficina tiene además "∅ Sin respaldo" (default en cuentas de banco/MP; en cajas el default es recibo).',
         'La factura se envía sola a Anita para contabilizarla; el comprobante de depósito va a Marisa, que concilia los depósitos. Vos no tenés que mandar nada por mail.',
