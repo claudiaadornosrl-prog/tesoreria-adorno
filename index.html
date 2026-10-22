@@ -336,6 +336,7 @@ main { padding: 16px; max-width: 1400px; margin: 0 auto; }
 .bot-fila { display: flex; align-items: center; gap: 12px; padding: 9px 14px; border-bottom: 1px solid #f3f4f6; flex-wrap: wrap; }
 .bot-fila:last-child { border-bottom: none; }
 /* (v109) bot corriendo: punto que late + robot que "trabaja" + barra indeterminada */
+.mov-pag { display: flex; align-items: center; gap: 8px; padding: 10px 12px; flex-wrap: wrap; } .mov-pag .ibtn[disabled] { opacity: .35; pointer-events: none; }
 .bot-fila.corriendo { background: linear-gradient(90deg, #eff6ff 0%, #fff 60%); }
 .bot-dot.run { background: #2563eb !important; box-shadow: 0 0 0 0 rgba(37,99,235,.55); animation: botPulso 1.3s ease-out infinite; }
 @keyframes botPulso { 0% { box-shadow: 0 0 0 0 rgba(37,99,235,.55); } 70% { box-shadow: 0 0 0 8px rgba(37,99,235,0); } 100% { box-shadow: 0 0 0 0 rgba(37,99,235,0); } }
@@ -1529,8 +1530,9 @@ async function renderMovimientos() {
       <button class="ibtn" onclick="toggleCuentaDefault()" title="${esDefault ? 'Quitar como predeterminada' : 'Abrir siempre en esta cuenta (en este dispositivo)'}" style="${_movFiltroCuenta ? '' : 'opacity:0.35;pointer-events:none;'}">${esDefault ? '⭐' : '☆'}</button>
       <input type="date" id="mov-desde" title="Desde" value="${_movFiltroDesde}" onchange="_movFiltroDesde=this.value; renderMovimientos();">
       <input type="date" id="mov-hasta" title="Hasta" value="${_movFiltroHasta}" onchange="_movFiltroHasta=this.value; renderMovimientos();">
-      <input type="search" id="mov-buscar" placeholder="🔎 Importe, proveedor, descripción…" value="${escHtml(_movBusca)}" oninput="_movBusca=this.value; filtrarMovsLocal();">
+      <input type="search" id="mov-buscar" placeholder="🔎 Importe, proveedor, descripción…" value="${escHtml(_movBusca)}" oninput="_movBusca=this.value; filtrarMovsLocal(true);">
       <button class="ibtn" onclick="exportarMovsExcel()" title="Descargar lo filtrado en Excel"><svg class="ico s" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><path d="M8 13l8 6M16 13l-8 6"/></svg></button>
+      <button class="ibtn" onclick="exportarMovsPdf()" title="Descargar lo filtrado en PDF"><svg class="ico s" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M9 17v-5h2a1.5 1.5 0 0 1 0 3H9"/></svg></button>
       <button class="ibtn primary" onclick="cambiarTab('cargar')" title="Cargar un movimiento a mano (ingreso, egreso o transferencia)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
     </div>
     <div id="mov-lista"><div class="empty"><div class="spinner"></div></div></div>
@@ -1553,11 +1555,18 @@ async function renderMovimientos() {
       // orden_banco: posición dentro del día según el banco (Galicia reordena
       // los movs a posteriori, ej. echeqs — así el saldo fila x fila cierra).
       .order('orden_banco', { ascending: false, nullsFirst: false })
-      .order('id', { ascending: false })
-      .limit(500);
+      .order('id', { ascending: false });
     if (_movFiltroCuenta) q = q.eq('cuenta_id', _movFiltroCuenta);
-    const { data, error } = await q;
+    // (22-oct, JP) antes se cortaba en 500 y no había forma de ver el resto: ahora se traen todos los del rango, de a 1000
+    let data = [], error = null;
+    for (let i = 0; i < 20; i++) {
+      const r = await q.range(i * 1000, i * 1000 + 999);
+      if (r.error) { error = r.error; break; }
+      data = data.concat(r.data || []);
+      if (!r.data || r.data.length < 1000) break;
+    }
     if (error) throw error;
+    _movPag.p = 0;
     _movsCache = data || [];
     _tenenciasCache = tenencias;
     filtrarMovsLocal();
@@ -1639,6 +1648,20 @@ function renderTablaTenencias(tenencias) {
 }
 
 let _movsCache = [];
+// (22-oct) paginador de la grilla de movimientos (abajo de la tabla)
+let _movPag = { p: 0, n: Number(localStorage.getItem('tes_mov_pag') || 100) };
+function _movPagIr(p) { _movPag.p = p; filtrarMovsLocal(); document.getElementById('mov-lista')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+function _movPagTam(n) { _movPag.n = Number(n); _movPag.p = 0; try { localStorage.setItem('tes_mov_pag', String(n)); } catch (_) {} filtrarMovsLocal(); }
+function _movPagHtml(total) {
+  const pags = Math.max(1, Math.ceil(total / _movPag.n)); if (_movPag.p >= pags) _movPag.p = pags - 1;
+  const desde = total ? _movPag.p * _movPag.n + 1 : 0, hasta = Math.min(total, (_movPag.p + 1) * _movPag.n);
+  return `<div class="mov-pag"><span class="mini">${desde}–${hasta} de ${total}</span>
+    <span style="flex:1"></span>
+    <button class="ibtn" ${_movPag.p === 0 ? 'disabled' : ''} onclick="_movPagIr(${_movPag.p - 1})" title="Página anterior">‹</button>
+    <span class="mini">Página <b>${_movPag.p + 1}</b> de ${pags}</span>
+    <button class="ibtn" ${_movPag.p >= pags - 1 ? 'disabled' : ''} onclick="_movPagIr(${_movPag.p + 1})" title="Página siguiente">›</button>
+    <select class="mini" onchange="_movPagTam(this.value)" title="Movimientos por página">${[50, 100, 250, 500].map(n => `<option value="${n}" ${n === _movPag.n ? 'selected' : ''}>${n} por página</option>`).join('')}</select></div>`;
+}
 let _tenenciasCache = [];
 let _movBusca = '';
 
@@ -1655,7 +1678,8 @@ function _movsFiltrados() {
     String(Math.round(Math.abs(m.importe))).includes(tNum) ||
     JSON.stringify(m.extra || {}).toLowerCase().includes(t));
 }
-function filtrarMovsLocal() {
+function filtrarMovsLocal(resetPag) {
+  if (resetPag) _movPag.p = 0;
   renderListaMovimientos(_movsFiltrados(), _tenenciasCache || []);
 }
 
@@ -1679,17 +1703,48 @@ async function exportarMovsExcel() {
       Cuenta: m.cuenta_nombre || '',
       Descripcion: m.descripcion || '',
       Categoria: m.categoria_nombre || '',
-      Importe: Number(m.importe),
+      'Débito': Number(m.importe) < 0 ? Math.abs(Number(m.importe)) : null,   // (22-oct, JP) como lo muestra el banco
+      'Crédito': Number(m.importe) > 0 ? Number(m.importe) : null,
       'Saldo post': m.saldo_post != null ? Number(m.saldo_post) : null,
       Nota: m.nota || '',
       'CUIT/Razón social': [(m.extra || {}).cuit, (m.extra || {}).razon_social].filter(Boolean).join(' · '),
     }));
     const ws = XLSX.utils.json_to_sheet(filas);
-    ws['!cols'] = [{wch:10},{wch:20},{wch:45},{wch:18},{wch:14},{wch:14},{wch:30},{wch:28}];
+    ws['!cols'] = [{wch:10},{wch:20},{wch:45},{wch:18},{wch:14},{wch:14},{wch:14},{wch:30},{wch:28}];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Movimientos');
     const cta = _movFiltroCuenta ? (_cuentas.find(c => c.id == _movFiltroCuenta)?.nombre || 'cuenta').replace(/[^\w]+/g, '_') : 'todas';
     XLSX.writeFile(wb, `movimientos_${cta}_${_movFiltroDesde}_a_${_movFiltroHasta}.xlsx`);
+  } catch (e) { alert('Error al exportar: ' + e.message); }
+}
+
+// (22-oct, JP) PDF de lo filtrado (jsPDF + autoTable bajo demanda)
+async function _loadAutoTable() {
+  if (window.jspdf && window.jspdf.jsPDF && window.jspdf.jsPDF.API.autoTable) return;
+  await new Promise((res, rej) => { const s = document.createElement('script'); s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js'; s.onload = res; s.onerror = () => rej(new Error('No se pudo cargar la librería del PDF (¿sin internet?)')); document.head.appendChild(s); });
+}
+async function exportarMovsPdf() {
+  try {
+    await _loadAutoTable();
+    const movs = _movsFiltrados();
+    if (!movs.length) return alert('No hay movimientos para exportar con estos filtros.');
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    const cta = _movFiltroCuenta ? (_cuentas.find(c => c.id == _movFiltroCuenta)?.nombre || 'cuenta') : 'Todas las cuentas';
+    const f = s => s ? s.slice(0, 10).split('-').reverse().join('/') : '';
+    const n = v => v == null ? '' : Number(v).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    doc.setFontSize(13); doc.text(`Movimientos · ${cta}`, 14, 12);
+    doc.setFontSize(9); doc.setTextColor(100); doc.text(`Del ${f(_movFiltroDesde)} al ${f(_movFiltroHasta)} · ${movs.length} movimientos · Claudia Adorno SRL`, 14, 17); doc.setTextColor(0);
+    const totD = movs.filter(m => +m.importe < 0).reduce((s, m) => s + Math.abs(+m.importe), 0), totC = movs.filter(m => +m.importe > 0).reduce((s, m) => s + +m.importe, 0);
+    doc.autoTable({
+      startY: 21, styles: { fontSize: 7.5, cellPadding: 1.4 }, headStyles: { fillColor: [22, 163, 74] },
+      columnStyles: { 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' } },
+      head: [['Fecha', 'Cuenta', 'Descripción', 'Categoría', 'Débito', 'Crédito', 'Saldo', 'Nota']],
+      body: movs.map(m => [f(m.fecha), m.cuenta_nombre || '', (m.descripcion || '').slice(0, 70), m.categoria_nombre || '', +m.importe < 0 ? n(Math.abs(+m.importe)) : '', +m.importe > 0 ? n(+m.importe) : '', m.saldo_post != null ? n(m.saldo_post) : '', (m.nota || '').slice(0, 40)]),
+      foot: [['', '', 'Totales', '', n(totD), n(totC), '', '']], footStyles: { fillColor: [241, 245, 249], textColor: 20, fontStyle: 'bold' },
+    });
+    const ctaF = _movFiltroCuenta ? cta.replace(/[^\w]+/g, '_') : 'todas';
+    doc.save(`movimientos_${ctaF}_${_movFiltroDesde}_a_${_movFiltroHasta}.pdf`);
   } catch (e) { alert('Error al exportar: ' + e.message); }
 }
 
@@ -1945,7 +2000,7 @@ function renderListaMovimientos(movs, tenencias = []) {
           <th class="right">Débitos</th><th class="right">Créditos</th><th class="right">Saldo</th><th></th>
         </tr></thead>
         <tbody>
-          ${movs.map(m => {
+          ${movs.slice(_movPag.p * _movPag.n, (_movPag.p + 1) * _movPag.n).map(m => {
             const origenChip = {
               manual: 'origen-manual',
               ventas_auto: 'origen-ventas',
@@ -2058,6 +2113,7 @@ function renderListaMovimientos(movs, tenencias = []) {
         </tbody>
       </table>
     </div>
+    ${_movPagHtml(movs.length)}
   `;
 }
 
@@ -3730,7 +3786,7 @@ if ('serviceWorker' in navigator) {
   }, true);
 })();
 </script>
-<script src="manual.js?v=28"></script>
+<script src="manual.js?v=29"></script>
 <script>
 // (24-ago) Blindaje iOS: re-suscripcion automatica de push. iOS suelta la
 // suscripcion silenciosamente cada tanto; si el permiso sigue concedido y

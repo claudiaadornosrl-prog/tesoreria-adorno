@@ -47,7 +47,7 @@ function _manualSecciones() {
         'Usá el buscador para filtrar por descripción, importe o destinatario.',
         'Las filas amarillas tienen una nota: el texto aparece en cursiva abajo de la descripción.',
         'Podés agregar o editar la nota de cualquier movimiento con el lápiz — la pantalla no se mueve al guardar.',
-        ...(oficina ? ['El botón de exportar descarga los movimientos filtrados en Excel.'] : []),
+        ...(oficina ? ['Los botones de exportar descargan los movimientos filtrados en Excel (con Débitos y Créditos en columnas separadas, como el banco) o en PDF.', 'La grilla muestra de a 100 movimientos (se puede cambiar a 50, 250 o 500) con el paginador abajo de la tabla; ya no hay tope de 500 por rango de fechas.'] : []),
       ],
     },
   ];
