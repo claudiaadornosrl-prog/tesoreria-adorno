@@ -1,5 +1,5 @@
 // Service Worker — Tesorería Adorno
-const CACHE_VERSION = 'tesoreria-adorno-v113-sesion-vieja';
+const CACHE_VERSION = 'tesoreria-adorno-v114-sesion-iss';
 const CACHE_ASSETS = ['./', './index.html',
   './manual.js', './manifest.webmanifest', './favicon.svg', './fonts/URWGothic-Book.ttf'];
 
