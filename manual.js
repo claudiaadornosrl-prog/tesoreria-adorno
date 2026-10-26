@@ -123,9 +123,9 @@ function _manualSecciones() {
   // (22-sep) Para TODAS las usuarias, cajeras y encargadas
   items.push({
     icon: '💸', titulo: 'Transferencias recibidas',
-    desc: 'Lo que entra al CVU/alias de Mercado Pago de la empresa (la cuenta madre, que las cuentas colaboradoras no ven) y, desde el 26-oct, también los cobros por QR de tu local pagados con transferencia desde otro banco.',
+    desc: 'Lo que entra al CVU/alias de Mercado Pago de la empresa (la cuenta madre, que las cuentas colaboradoras no ven).',
     pasos: [
-      'Muestra las transferencias LIBRES de las últimas 48 horas (las reclamadas y las más viejas desaparecen de la lista; el movimiento sigue en Tesorería). No manda notificaciones: entrás cuando el cliente te dice que transfirió. Las filas "QR · <local>" son cobros por QR de tu local pagados con transferencia bancaria: ya tienen dueño, no llevan "Es mía" y figuran como cobrados. Los cobros por QR con dinero en cuenta de MP y los de Point NO aparecen acá: esos ya los ven en su cuenta de MP.',
+      'Muestra las transferencias LIBRES de las últimas 48 horas (las reclamadas y las más viejas desaparecen de la lista; el movimiento sigue en Tesorería). No manda notificaciones: entrás cuando el cliente te dice que transfirió. Los cobros por QR y Point NO aparecen acá: esos ya los ven en su cuenta de MP.',
       'Mercado Pago no informa QUIÉN transfirió: compará importe y hora con el comprobante que muestra el cliente. El código de la pestaña es el mismo que figura en su comprobante.',
       'Si el cliente dice que ya transfirió y no aparece, tocá "🔄 Verificar ahora": consulta MP en el momento (unos segundos). Las transferencias también entran solas cada 15 minutos.',
       'Antes de entregar, tocá "✔ Es mía" y anotá el cliente o qué se llevó. Queda registrada a nombre de tu local y DESAPARECE de la lista para todos: el otro local ya no la ve. Si el cliente dice que transfirió y no la encontrás, puede que otro local ya la haya reclamado: hablá con ellos antes de entregar.',
