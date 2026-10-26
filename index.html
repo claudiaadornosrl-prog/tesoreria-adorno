@@ -496,6 +496,8 @@ main { padding: 16px; max-width: 1400px; margin: 0 auto; }
 .pp-fila { display: grid; grid-template-columns: 84px 1fr 130px auto; gap: 12px; align-items: center; padding: 8px 12px; border-bottom: 1px solid #f3f4f6; border-left: 4px solid transparent; cursor: pointer; }
 .pp-fila:nth-child(even) { background: #fafafa; }
 .pp-fila:hover { background: #fff7ed; }
+.pp-bar { height: 6px; background: #f1f5f9; border-radius: 3px; overflow: hidden; max-width: 220px; flex: 1; }
+.pp-bar > div { height: 100%; background: var(--primary); }
 .bot-fila { display: flex; align-items: center; gap: 12px; padding: 9px 14px; border-bottom: 1px solid #f3f4f6; flex-wrap: wrap; }
 .bot-fila:last-child { border-bottom: none; }
 /* (v109) bot corriendo: punto que late + robot que "trabaja" + barra indeterminada */
@@ -3180,7 +3182,7 @@ async function refrescarBadgePagosPendientes() {
   try {
     const { count } = await sb.from('tesoreria_pagos_pendientes')
       .select('id', { count: 'exact', head: true })
-      .in('estado', ['pendiente','por_confirmar'])
+      .in('estado', ['pendiente','por_confirmar','parcial']).is('parte_de', null)
       .lte('fecha_vencimiento', new Date(Date.now() + 7*86400000).toISOString().slice(0,10));
     const badge = document.getElementById('badge-pendientes');
     if (badge) {
@@ -3221,8 +3223,8 @@ async function renderPagosPendientes(soloFiltro) {
   if (!soloFiltro) {
   cont.innerHTML = '<div class="empty"><div class="spinner"></div></div>';
   const filtro = _filtroEstado === 'pagados' ? ['pagado']
-    : _filtroEstado === 'todos' ? ['pendiente','por_confirmar','pagado','cancelado']
-    : ['pendiente','por_confirmar'];
+    : _filtroEstado === 'todos' ? ['pendiente','por_confirmar','parcial','pagado','cancelado']
+    : ['pendiente','por_confirmar','parcial'];
   let q = sb.from('tesoreria_pagos_pendientes_view').select('*').in('estado', filtro);
   if (_filtroCategoria) q = q.eq('categoria', _filtroCategoria);
   if (_filtroLocal) q = q.eq('local', _filtroLocal);
@@ -3233,12 +3235,12 @@ async function renderPagosPendientes(soloFiltro) {
   if (error) { cont.innerHTML = `<div class="empty">Error: ${escHtml(error.message)}</div>`; return; }
   _pagosPendientesCache = data || [];
   }
-  // Aplicar filtro de texto in-memory
-  let cacheFiltrado = _pagosPendientesCache;
+  // (26-oct) Pagos en partes: las partes (parte_de) no se listan sueltas, viven en la ficha del padre
+  let cacheFiltrado = _pagosPendientesCache.filter(p => !p.parte_de);
   if (_filtroTexto && _filtroTexto.trim().length >= 2) {
     const t = _filtroTexto.trim().toLowerCase();
     const tnum = t.replace(/[.,$\s]/g, '');
-    cacheFiltrado = _pagosPendientesCache.filter(p => {
+    cacheFiltrado = cacheFiltrado.filter(p => {
       const importeStr = String(p.importe || '').replace(/[.,]/g,'');
       return (p.concepto && p.concepto.toLowerCase().includes(t))
           || (p.destinatario && p.destinatario.toLowerCase().includes(t))
@@ -3249,8 +3251,8 @@ async function renderPagosPendientes(soloFiltro) {
           || (importeStr.includes(tnum));
     });
   }
-  const pendientes = cacheFiltrado.filter(p => ['pendiente','por_confirmar'].includes(p.estado));
-  const totalPos = pendientes.filter(p => +p.importe > 0).reduce((s,p) => s + +p.importe, 0);
+  const pendientes = cacheFiltrado.filter(p => ['pendiente','por_confirmar','parcial'].includes(p.estado));
+  const totalPos = pendientes.filter(p => +p.importe > 0).reduce((s,p) => s + _ppMonto(p), 0);
   const totalNeg = pendientes.filter(p => +p.importe < 0).reduce((s,p) => s + +p.importe, 0);
   const grupos = { vencido:[], hoy:[], esta_semana:[], este_mes:[], futuro:[], pagado:[], cancelado:[] };
   if (_ordenPendientes === 'venc_asc') {
@@ -3323,7 +3325,7 @@ async function renderPagosPendientes(soloFiltro) {
       const cfg = u === '_orden'
         ? { label: '📋 Ordenado', color: '#475569', bg: '#f8fafc' }
         : (URGENCIA_CFG[u] || { label: u.toUpperCase(), color: '#475569', bg: '#f8fafc' });
-      const subtotal = items.filter(p => ['pendiente','por_confirmar'].includes(p.estado)).reduce((s,p) => s + +p.importe, 0);
+      const subtotal = items.filter(p => ['pendiente','por_confirmar','parcial'].includes(p.estado)).reduce((s,p) => s + _ppMonto(p), 0);
       return `<div style="margin-bottom:14px;">
         <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:${cfg.bg};border-left:4px solid ${cfg.color};border-radius:6px;margin-bottom:6px;">
           <div style="font-weight:700;color:${cfg.color};">${cfg.label} <span style="color:var(--muted);font-weight:500;font-size:13px;">(${items.length})</span></div>
@@ -3338,24 +3340,33 @@ async function renderPagosPendientes(soloFiltro) {
   </div>`;
 }
 
+// (26-oct) lo que todavía hay que pagar de un pendiente: en los pagos en partes, lo que falta
+function _ppMonto(p) { return p.estado === 'parcial' ? +(p.importe_falta || 0) : +p.importe; }
+function _ppPct(p) { return +p.importe > 0 ? Math.min(100, Math.round(100 * (+p.importe_pagado || 0) / +p.importe)) : 0; }
 function renderPagoItem(p) {
   const esNegativo = +p.importe < 0;
+  const esParcial = p.estado === 'parcial';
   const colorImp = p.estado === 'pagado' ? '#16a34a' : (esNegativo ? '#16a34a' : '#dc2626');
   const labelImp = esNegativo ? '+' : '−';
-  const fechaCorta = new Date(p.fecha_vencimiento + 'T00:00').toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'});
+  const fechaCorta = new Date((esParcial && p.proximo_vto ? p.proximo_vto : p.fecha_vencimiento) + 'T00:00').toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'});
   const cat = CAT_LABELS[p.categoria] || p.categoria;
   const medio = MEDIO_LABELS[p.medio_pago] || p.medio_pago;
   const localBadge = p.local && p.local !== 'general'
     ? `<span style="background:#ede9fe;color:#5b21b6;padding:1px 8px;border-radius:10px;font-size:10px;font-weight:600;">${p.local.toUpperCase()}</span>` : '';
   const recurrenteBadge = p.recurrente
     ? `<span style="background:#dcfce7;color:#166534;padding:1px 8px;border-radius:10px;font-size:10px;font-weight:600;" title="Recurrente">🔁 ${p.frecuencia}${p.recurrente_veces ? ' × ' + p.recurrente_veces : ''}</span>` : '';
-  const estadoBadge = p.estado === 'pagado'
-    ? `<span style="background:#dcfce7;color:#166534;padding:1px 8px;border-radius:10px;font-size:10px;font-weight:600;">✓ PAGADO</span>`
+  const estadoBadge = esParcial
+    ? `<span style="background:#fef3c7;color:#92400e;padding:1px 8px;border-radius:10px;font-size:10px;font-weight:600;" title="Pago en partes: ${p.partes_pagadas} de ${p.partes_n} pagadas">🧩 EN PARTES · ${_ppPct(p)}%</span>`
+    : p.estado === 'pagado'
+    ? `<span style="background:#dcfce7;color:#166534;padding:1px 8px;border-radius:10px;font-size:10px;font-weight:600;">✓ PAGADO${p.partes_n > 0 ? ' · ' + p.partes_n + ' partes' : ''}</span>`
     : (p.estado === 'cancelado'
       ? `<span style="background:#fee2e2;color:#991b1b;padding:1px 8px;border-radius:10px;font-size:10px;font-weight:600;">✗ CANCELADO</span>`
       : (p.estado === 'por_confirmar'
         ? `<span style="background:#fef3c7;color:#92400e;padding:1px 8px;border-radius:10px;font-size:10px;font-weight:600;" title="El sistema detectó un egreso bancario del mismo importe">🤔 ¿PAGADO?</span>` : ''));
-  const acciones = p.estado === 'por_confirmar'
+  const acciones = esParcial
+    ? `<button class="btn-secondary" style="font-size:12px;padding:5px 10px;color:#b45309;border-color:#fcd34d;font-weight:700;" title="Registrar el próximo pago de esta serie" onclick="event.stopPropagation();abrirEditarPago(${p.id})">➕ Pago</button>
+       <button class="btn-secondary" style="font-size:12px;padding:5px 10px;color:#dc2626;border-color:#fca5a5;" onclick="event.stopPropagation();cancelarPago(${p.id})">✗</button>`
+    : p.estado === 'por_confirmar'
     ? `<button class="btn-secondary" style="font-size:12px;padding:5px 10px;color:#16a34a;border-color:#86efac;font-weight:700;" onclick="event.stopPropagation();confirmarMatchPago(${p.id}, ${p.movimiento_id || 'null'})">✓ Sí, pagado</button>
        <button class="btn-secondary" style="font-size:12px;padding:5px 10px;" onclick="event.stopPropagation();rechazarMatchPago(${p.id})">✗ No es</button>`
     : p.estado === 'pendiente'
@@ -3364,16 +3375,17 @@ function renderPagoItem(p) {
        <button class="btn-secondary" style="font-size:12px;padding:5px 10px;color:#dc2626;border-color:#fca5a5;" onclick="event.stopPropagation();cancelarPago(${p.id})">✗</button>`
     : `<button class="btn-secondary" style="font-size:12px;padding:5px 10px;" onclick="event.stopPropagation();abrirEditarPago(${p.id})">Ver</button>`;
   // (13-oct, JP) color por urgencia en la fila: franja izquierda y fecha del color del grupo
-  const urg = (p.estado === 'pendiente' || p.estado === 'por_confirmar') ? (URGENCIA_CFG[p.estado_urgencia] || URGENCIA_CFG.futuro) : { color: '#cbd5e1' };
+  const urg = (p.estado === 'pendiente' || p.estado === 'por_confirmar' || esParcial) ? (URGENCIA_CFG[p.estado_urgencia] || URGENCIA_CFG.futuro) : { color: '#cbd5e1' };
+  const barra = esParcial ? `<div style="display:flex;align-items:center;gap:8px;margin-top:4px;"><div class="pp-bar"><div style="width:${_ppPct(p)}%"></div></div><span style="font-size:11px;color:#92400e;white-space:nowrap;">${_ppPct(p)}% pagado · falta ${fmtMoneda(p.importe_falta, p.moneda)}</span></div>` : '';
   return `<div class="pp-fila" style="border-left-color:${urg.color};${p.estado === 'pagado' || p.estado === 'cancelado' ? 'opacity:.7;' : ''}" onclick="abrirEditarPago(${p.id})">
     <div style="font-size:13px;font-weight:700;color:${urg.color};text-align:center;line-height:1.2;">${fechaCorta}</div>
     <div style="min-width:0;">
       <div style="font-weight:600;font-size:13px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escHtml(p.concepto)}</div>
       <div style="font-size:11px;color:var(--muted);margin-top:2px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
         <span>${cat}</span><span>·</span><span>${medio}</span>${localBadge}${recurrenteBadge}${estadoBadge}
-      </div>
+      </div>${barra}
     </div>
-    <div style="font-weight:700;font-size:15px;color:${colorImp};text-align:right;font-variant-numeric:tabular-nums;">${labelImp}${fmtMoneda(Math.abs(+p.importe), p.moneda)}</div>
+    <div style="font-weight:700;font-size:15px;color:${colorImp};text-align:right;font-variant-numeric:tabular-nums;">${labelImp}${fmtMoneda(Math.abs(esParcial ? +p.importe_falta : +p.importe), p.moneda)}${esParcial ? `<div style="font-size:10px;color:var(--muted);font-weight:500;">de ${fmtMoneda(p.importe, p.moneda)}</div>` : ''}</div>
     <div style="display:flex;gap:4px;">${acciones}</div>
   </div>`;
 }
@@ -3411,7 +3423,7 @@ async function marcarComoPagado(id) {
 function _cuotaNro(c) { const m = /CUOTA\s+(\d+)\s+DE\s+\d+\s*$/i.exec(c || ''); return m ? +m[1] : null; }
 async function cancelarPago(id) {
   const p = _pagosPendientesCache.find(x => x.id === id) || {};
-  if (!confirm('¿Cancelar este pago?')) return;
+  if (!confirm(p.estado === 'parcial' ? `¿Cancelar lo que falta de este pago?\n\nYa se pagaron ${fmtMoneda(p.importe_pagado, p.moneda)}; las partes abiertas se cancelan y eso queda registrado.` : '¿Cancelar este pago?')) return;
   let ids = [id];
   // Serie de cuotas: cancelar una NO cancela las demás, salvo que se pida
   if (p.serie_id) {
@@ -3449,7 +3461,6 @@ function abrirFormPago(existente, precarga) {
   const wrap = document.createElement('div');
   wrap.id = 'modal-pago';
   wrap.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,0.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
-  wrap.onclick = (e) => { if (e.target === wrap) wrap.remove(); };
   const fechaDefault = p.fecha_vencimiento || new Date(Date.now() + 1*86400000).toISOString().slice(0,10);  // (18-ago) default: mañana
   wrap.innerHTML = `<div style="background:#fff;border-radius:12px;max-width:540px;width:100%;max-height:90vh;overflow:auto;padding:22px;">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
@@ -3511,6 +3522,7 @@ function abrirFormPago(existente, precarga) {
       </div>
       <label><div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600;margin-bottom:3px;">Notas</div>
         <textarea id="f-notas" rows="2" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;box-sizing:border-box;font-family:inherit;">${escHtml(p.notas||'')}</textarea></label>
+      <div id="f-partes-wrap" style="min-width:0;max-width:100%;overflow-x:auto;"></div>
     </div>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px;align-items:center;">
       ${esEdit && ['pagado','por_confirmar'].includes(p.estado) ? `
@@ -3522,10 +3534,176 @@ function abrirFormPago(existente, precarga) {
     </div>
   </div>`;
   document.body.appendChild(wrap);
+  if (esEdit) renderPartesPago(p);
   cargarCatalogosCarga().then(() => {
     renderOrigenPago(document.getElementById('f-categoria').value);
     poblarLocalesSelect(p.local || 'general');
   }).catch(() => {});
+}
+
+// ═══════════ PAGOS EN PARTES (26-oct-2026, pedido Marisa vía JP) ═══════════
+// Un pendiente con el total y N partes (anticipo, saldo…). Cada parte es un pendiente
+// hijo (parte_de): la matchea el banco y la avisa el cron. El padre queda "parcial"
+// con la barra de avance hasta que se paga la última parte.
+async function _reabrirFicha(id) {
+  await renderPagosPendientes();
+  const p = _pagosPendientesCache.find(x => x.id === id);
+  if (p) abrirFormPago(p, null); else document.getElementById('modal-pago')?.remove();
+  refrescarBadgePagosPendientes();
+}
+function _parteNombre(h) { const m = /· (pago \d+ de \d+.*)$/.exec(h.concepto || ''); return m ? m[1] : (h.concepto || ''); }
+function renderPartesPago(p) {
+  const w = document.getElementById('f-partes-wrap');
+  if (!w) return;
+  if (p.parte_de) {
+    w.innerHTML = `<div style="font-size:12.5px;background:#fffbeb;padding:8px 10px;border-radius:6px;">🧩 Es la parte ${p.parte_nro || ''} de un pago mayor.
+      <a href="#" onclick="event.preventDefault();_reabrirFicha(${p.parte_de})">Abrir el pago principal</a></div>`;
+    return;
+  }
+  if (+p.importe <= 0 || !['pendiente','parcial','pagado'].includes(p.estado)) return;
+  const partes = p.partes || [];
+  if (!partes.length) {
+    if (p.estado !== 'pendiente') return;
+    w.innerHTML = `<div style="background:#f8fafc;padding:10px;border-radius:6px;font-size:13px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
+      <span>🧩 ¿Se paga en partes (anticipo + saldo)?</span>
+      <button type="button" class="btn-secondary" style="font-size:12px;padding:5px 10px;" onclick="_partesForm(${p.id})">Dividir en partes</button></div>
+      <div id="f-partes-edit"></div>`;
+    return;
+  }
+  const pct = _ppPct(p);
+  const abierto = ['pendiente','parcial'].includes(p.estado);
+  const pendientesN = partes.filter(h => ['pendiente','por_confirmar'].includes(h.estado)).length;
+  w.innerHTML = `<div style="border:1px solid #fcd34d;border-radius:8px;padding:10px;background:#fffdf7;">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
+      <div style="font-weight:700;font-size:13px;">🧩 Pago en partes · ${pct}% pagado</div>
+      <div style="font-size:12px;color:#92400e;">Pagado ${fmtMoneda(p.importe_pagado, p.moneda)} · Falta ${fmtMoneda(p.importe_falta, p.moneda)}</div>
+    </div>
+    <div class="pp-bar" style="max-width:none;margin-bottom:8px;"><div style="width:${pct}%"></div></div>
+    <div style="overflow-x:auto;"><table style="width:100%;min-width:0;font-size:12.5px;border-collapse:collapse;">
+      ${partes.map(h => {
+        const f = new Date(h.fecha_vencimiento + 'T00:00').toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit'});
+        const est = h.estado === 'pagado'
+          ? `<span style="color:#166534;white-space:nowrap;">✓ ${h.pagado_at ? new Date(h.pagado_at).toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit'}) : 'pagado'}</span>${h.movimiento_id ? ' <span style="color:var(--muted);" title="Conciliado con el banco (mov ' + h.movimiento_id + ')">🏦</span>' : ''}`
+          : h.estado === 'por_confirmar' ? `<span style="color:#92400e;">🤔 ¿pagado?</span>`
+          : h.estado === 'cancelado' ? `<span style="color:#991b1b;">✗ cancelado</span>`
+          : `<span style="color:var(--muted);">a pagar</span>`;
+        const btn = h.estado === 'pagado'
+          ? `<button type="button" class="btn-secondary" style="font-size:11px;padding:3px 8px;" title="Deshacer este pago" onclick="volverParte(${h.id}, ${p.id})">↩</button>`
+          : h.estado === 'por_confirmar'
+          ? `<button type="button" class="btn-secondary" style="font-size:11px;padding:3px 8px;color:#16a34a;border-color:#86efac;" onclick="confirmarParte(${h.id}, ${h.movimiento_id || 'null'}, ${p.id})">✓ Sí</button>`
+          : h.estado === 'pendiente'
+          ? `<button type="button" class="btn-secondary" style="font-size:11px;padding:3px 8px;color:#b45309;border-color:#fcd34d;font-weight:700;" title="Registrar el pago de esta parte" onclick="registrarParte(${h.id}, ${p.id})">➕ Pago</button>`
+          : '';
+        return `<tr style="border-top:1px solid #fef3c7;${h.estado === 'cancelado' ? 'opacity:.6;' : ''}">
+          <td style="padding:5px 4px;white-space:nowrap;">${h.parte_nro}</td>
+          <td style="padding:5px 4px;min-width:90px;">${escHtml(_parteNombre(h))}</td>
+          <td style="padding:5px 4px;white-space:nowrap;">${f}</td>
+          <td style="padding:5px 4px;text-align:right;font-variant-numeric:tabular-nums;">${fmtMoneda(h.importe, p.moneda)}</td>
+          <td style="padding:5px 4px;">${est}</td>
+          <td style="padding:5px 4px;text-align:right;">${btn}</td></tr>`;
+      }).join('')}
+    </table></div>
+    <div id="f-parte-reg"></div>
+    <div id="f-partes-edit"></div>
+    ${abierto ? `<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
+      <button type="button" class="btn-secondary" style="font-size:12px;padding:5px 10px;" onclick="_partesForm(${p.id})">✏️ Rehacer las partes que faltan${pendientesN ? ' (' + pendientesN + ')' : ''}</button>
+    </div>` : ''}
+  </div>`;
+}
+let _partesEdit = [];
+function _partesForm(id) {
+  const p = _pagosPendientesCache.find(x => x.id === id);
+  const w = document.getElementById('f-partes-edit');
+  if (!p || !w) return;
+  const falta = +(p.importe_falta ?? p.importe);
+  const abiertas = (p.partes || []).filter(h => ['pendiente','por_confirmar'].includes(h.estado));
+  _partesEdit = abiertas.length
+    ? abiertas.map(h => ({ concepto: (/\((.*)\)\s*$/.exec(_parteNombre(h)) || [,''])[1], importe: +h.importe, fecha: h.fecha_vencimiento }))
+    : [{ concepto: 'anticipo 50%', importe: Math.round(falta / 2), fecha: hoyISO() },
+       { concepto: 'saldo', importe: falta - Math.round(falta / 2), fecha: p.fecha_vencimiento }];
+  _partesFormRender(id, falta, p.moneda);
+}
+function _partesFormRender(id, falta, moneda) {
+  const w = document.getElementById('f-partes-edit');
+  const suma = _partesEdit.reduce((s, r) => s + (+r.importe || 0), 0);
+  const dif = falta - suma;
+  w.innerHTML = `<div style="margin-top:8px;border:1px dashed #fcd34d;border-radius:8px;padding:10px;background:#fff;">
+    <div style="font-size:12px;color:#92400e;margin-bottom:6px;">Partes que faltan pagar · a repartir ${fmtMoneda(falta, moneda)}. El % es sobre lo que falta; podés escribir el importe directo.</div>
+    ${_partesEdit.map((r, i) => `<div style="display:grid;grid-template-columns:1fr 64px 120px 130px 28px;gap:6px;align-items:center;margin-bottom:5px;">
+      <input type="text" placeholder="anticipo / saldo…" value="${escHtml(r.concepto||'')}" onchange="_partesEdit[${i}].concepto=this.value" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12.5px;">
+      <input type="number" min="0" max="100" step="1" value="${falta > 0 ? Math.round(100 * (+r.importe || 0) / falta) : 0}" title="% de lo que falta" onchange="_partesEdit[${i}].importe=Math.round(${falta}*(+this.value||0)/100);_partesFormRender(${id},${falta},'${moneda}')" style="padding:6px 6px;border:1px solid var(--border);border-radius:6px;font-size:12.5px;">
+      <input type="text" inputmode="decimal" value="${nmShow(r.importe)}" onfocus="wireImporte(this)" onchange="_partesEdit[${i}].importe=nmParse(this.value)||0;_partesFormRender(${id},${falta},'${moneda}')" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12.5px;text-align:right;">
+      <input type="date" value="${r.fecha||''}" onchange="_partesEdit[${i}].fecha=this.value" style="padding:6px 6px;border:1px solid var(--border);border-radius:6px;font-size:12.5px;">
+      <button type="button" title="Quitar" onclick="_partesEdit.splice(${i},1);_partesFormRender(${id},${falta},'${moneda}')" style="background:none;border:none;color:#991b1b;cursor:pointer;font-size:15px;">✕</button>
+    </div>`).join('')}
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-top:6px;">
+      <button type="button" class="btn-secondary" style="font-size:12px;padding:4px 10px;" onclick="_partesEdit.push({concepto:'',importe:${dif > 0 ? dif : 0},fecha:''});_partesFormRender(${id},${falta},'${moneda}')">+ otra parte</button>
+      <span style="font-size:12px;color:${Math.abs(dif) < 1 ? '#166534' : '#b45309'};">Suma ${fmtMoneda(suma, moneda)}${Math.abs(dif) < 1 ? ' ✓' : ' · ' + (dif > 0 ? 'faltan ' : 'sobran ') + fmtMoneda(Math.abs(dif), moneda)}</span>
+      <span style="display:flex;gap:6px;">
+        <button type="button" class="btn-secondary" style="font-size:12px;padding:4px 10px;" onclick="document.getElementById('f-partes-edit').innerHTML=''">Cancelar</button>
+        <button type="button" class="btn-primary" style="width:auto;font-size:12px;padding:5px 12px;" onclick="guardarPartes(${id}, ${falta})">Guardar partes</button>
+      </span>
+    </div>
+  </div>`;
+}
+async function guardarPartes(id, falta) {
+  const partes = _partesEdit.map(r => ({ concepto: (r.concepto || '').trim(), importe: +r.importe || 0, fecha: r.fecha }));
+  if (!partes.length) return alert('Agregá al menos una parte.');
+  if (partes.some(r => r.importe <= 0)) return alert('Cada parte necesita un importe mayor a cero.');
+  if (partes.some(r => !r.fecha)) return alert('Cada parte necesita su fecha de vencimiento.');
+  const suma = partes.reduce((s, r) => s + r.importe, 0);
+  if (Math.abs(suma - falta) >= 1 && !confirm(`Las partes suman ${fmtMoneda(suma, 'ARS')} y falta pagar ${fmtMoneda(falta, 'ARS')}.\n\n¿Guardar igual? (el total del pendiente no cambia; lo que falte quedará como diferencia)`)) return;
+  const { error } = await sb.rpc('tesoreria_pago_partes_definir', { p_id: id, p_partes: partes });
+  if (error) return alert('No se pudo: ' + error.message);
+  toast('✓ Partes guardadas');
+  _reabrirFicha(id);
+}
+function registrarParte(parteId, padreId) {
+  const p = _pagosPendientesCache.find(x => x.id === padreId);
+  const h = (p?.partes || []).find(x => x.id === parteId);
+  const w = document.getElementById('f-parte-reg');
+  if (!p || !h || !w) return;
+  const abiertas = p.partes.filter(x => ['pendiente','por_confirmar'].includes(x.estado));
+  const esUltima = abiertas.length === 1;
+  w.innerHTML = `<div style="margin-top:8px;border:1px solid #fcd34d;border-radius:8px;padding:10px;background:#fff;">
+    <div style="font-weight:600;font-size:13px;margin-bottom:6px;">Registrar el ${escHtml(_parteNombre(h))}</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+      <label><div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600;margin-bottom:3px;">Importe pagado</div>
+        <input id="fp-importe" type="text" inputmode="decimal" value="${nmShow(h.importe)}" onfocus="wireImporte(this)" style="width:100%;padding:7px 9px;border:1px solid var(--border);border-radius:6px;font-size:13px;box-sizing:border-box;"></label>
+      <label><div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600;margin-bottom:3px;">Fecha de pago</div>
+        <input id="fp-fecha" type="date" value="${hoyISO()}" style="width:100%;padding:7px 9px;border:1px solid var(--border);border-radius:6px;font-size:13px;box-sizing:border-box;"></label>
+    </div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;margin-top:8px;cursor:pointer;">
+      <input id="fp-ultimo" type="checkbox" ${esUltima ? 'checked' : ''}> Es el último pago: cerrar el pendiente aunque quede diferencia</label>
+    <div style="font-size:11.5px;color:var(--muted);margin-top:4px;">Si pagás menos que la parte y no es el último, lo que falta queda como una parte nueva con la misma fecha.</div>
+    <div style="display:flex;justify-content:flex-end;gap:6px;margin-top:8px;">
+      <button type="button" class="btn-secondary" style="font-size:12px;padding:4px 10px;" onclick="document.getElementById('f-parte-reg').innerHTML=''">Cancelar</button>
+      <button type="button" class="btn-primary" style="width:auto;font-size:12px;padding:5px 12px;" onclick="guardarRegistroParte(${parteId}, ${padreId})">Guardar pago</button>
+    </div>
+  </div>`;
+  document.getElementById('fp-importe')?.focus();
+}
+async function guardarRegistroParte(parteId, padreId) {
+  const importe = nmParse(document.getElementById('fp-importe').value);
+  const fecha = document.getElementById('fp-fecha').value;
+  const ultimo = document.getElementById('fp-ultimo').checked;
+  if (!importe || importe <= 0) return alert('Falta el importe pagado.');
+  if (!fecha) return alert('Falta la fecha de pago.');
+  const { data, error } = await sb.rpc('tesoreria_pago_parte_registrar', { p_parte_id: parteId, p_importe: importe, p_fecha: fecha, p_ultimo: ultimo, p_movimiento_id: null });
+  if (error) return alert('No se pudo: ' + error.message);
+  toast(data?.estado === 'pagado' ? '✓ Pago registrado · pendiente completo' : `✓ Pago registrado · falta ${fmtMoneda(data?.importe_falta || 0, 'ARS')}`);
+  _reabrirFicha(padreId);
+}
+async function confirmarParte(parteId, movimientoId, padreId) {
+  const { error } = await sb.rpc('marcar_pago_realizado', { p_id: parteId, p_movimiento_id: movimientoId, p_pagado_por: session.email || 'admin' });
+  if (error) return alert('Error: ' + error.message);
+  toast('✓ Confirmado'); _reabrirFicha(padreId);
+}
+async function volverParte(parteId, padreId) {
+  if (!confirm('¿Deshacer este pago? La parte vuelve a "a pagar" y el pendiente vuelve a quedar en partes.')) return;
+  const { error } = await sb.rpc('tesoreria_volver_a_pendiente', { p_id: parteId });
+  if (error) return alert('No se pudo: ' + error.message);
+  toast('↩ Pago deshecho'); _reabrirFicha(padreId);
 }
 
 // ═══════════ Carga estructurada por categoría (11-ago-2026) ═══════════
@@ -3963,7 +4141,7 @@ if ('serviceWorker' in navigator) {
   }, true);
 })();
 </script>
-<script src="manual.js?v=31"></script>
+<script src="manual.js?v=32"></script>
 <script>
 // (24-ago) Blindaje iOS: re-suscripcion automatica de push. iOS suelta la
 // suscripcion silenciosamente cada tanto; si el permiso sigue concedido y
