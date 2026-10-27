@@ -3534,7 +3534,7 @@ function abrirFormPago(existente, precarga) {
     </div>
   </div>`;
   document.body.appendChild(wrap);
-  if (esEdit) renderPartesPago(p);
+  if (esEdit) renderPartesPago(p); else _partesNuevoInit();
   cargarCatalogosCarga().then(() => {
     renderOrigenPago(document.getElementById('f-categoria').value);
     poblarLocalesSelect(p.local || 'general');
@@ -3625,26 +3625,69 @@ function _partesForm(id) {
 }
 function _partesFormRender(id, falta, moneda) {
   const w = document.getElementById('f-partes-edit');
+  if (!w) return;
+  if (id == null) { falta = nmParse(document.getElementById('f-importe')?.value) || 0; moneda = document.getElementById('f-moneda')?.value || 'ARS'; }
   const suma = _partesEdit.reduce((s, r) => s + (+r.importe || 0), 0);
   const dif = falta - suma;
   w.innerHTML = `<div style="margin-top:8px;border:1px dashed #fcd34d;border-radius:8px;padding:10px;background:#fff;">
-    <div style="font-size:12px;color:#92400e;margin-bottom:6px;">Partes que faltan pagar · a repartir ${fmtMoneda(falta, moneda)}. El % es sobre lo que falta; podés escribir el importe directo.</div>
-    ${_partesEdit.map((r, i) => `<div style="display:grid;grid-template-columns:1fr 64px 120px 130px 28px;gap:6px;align-items:center;margin-bottom:5px;">
-      <input type="text" placeholder="anticipo / saldo…" value="${escHtml(r.concepto||'')}" onchange="_partesEdit[${i}].concepto=this.value" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12.5px;">
-      <input type="number" min="0" max="100" step="1" value="${falta > 0 ? Math.round(100 * (+r.importe || 0) / falta) : 0}" title="% de lo que falta" onchange="_partesEdit[${i}].importe=Math.round(${falta}*(+this.value||0)/100);_partesFormRender(${id},${falta},'${moneda}')" style="padding:6px 6px;border:1px solid var(--border);border-radius:6px;font-size:12.5px;">
-      <input type="text" inputmode="decimal" value="${nmShow(r.importe)}" onfocus="wireImporte(this)" onchange="_partesEdit[${i}].importe=nmParse(this.value)||0;_partesFormRender(${id},${falta},'${moneda}')" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12.5px;text-align:right;">
-      <input type="date" value="${r.fecha||''}" onchange="_partesEdit[${i}].fecha=this.value" style="padding:6px 6px;border:1px solid var(--border);border-radius:6px;font-size:12.5px;">
-      <button type="button" title="Quitar" onclick="_partesEdit.splice(${i},1);_partesFormRender(${id},${falta},'${moneda}')" style="background:none;border:none;color:#991b1b;cursor:pointer;font-size:15px;">✕</button>
+    <div style="font-size:12px;color:#92400e;margin-bottom:6px;">${id == null ? `Partes del pago · a repartir ${fmtMoneda(falta, moneda)} (el importe de arriba). El % es sobre el total; podés escribir el importe directo.` : `Partes que faltan pagar · a repartir ${fmtMoneda(falta, moneda)}. El % es sobre lo que falta; podés escribir el importe directo.`}</div>
+    ${_partesEdit.map((r, i) => `<div style="display:grid;grid-template-columns:minmax(0,1fr) 52px 108px 128px 22px;gap:6px;align-items:center;margin-bottom:5px;">
+      <input type="text" placeholder="anticipo / saldo…" value="${escHtml(r.concepto||'')}" onchange="_partesEdit[${i}].concepto=this.value" style="width:100%;min-width:0;box-sizing:border-box;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12.5px;">
+      <input type="number" min="0" max="100" step="1" value="${falta > 0 ? Math.round(100 * (+r.importe || 0) / falta) : 0}" title="% de lo que falta" onchange="_partesEdit[${i}].importe=Math.round(${falta}*(+this.value||0)/100);_partesFormRender(${id},${falta},'${moneda}')" style="width:100%;min-width:0;box-sizing:border-box;padding:6px 6px;border:1px solid var(--border);border-radius:6px;font-size:12.5px;">
+      <input type="text" inputmode="decimal" value="${nmShow(r.importe)}" onfocus="wireImporte(this)" onchange="_partesEdit[${i}].importe=nmParse(this.value)||0;_partesFormRender(${id},${falta},'${moneda}')" style="width:100%;min-width:0;box-sizing:border-box;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12.5px;text-align:right;">
+      <input type="date" value="${r.fecha||''}" onchange="_partesEdit[${i}].fecha=this.value" style="width:100%;min-width:0;box-sizing:border-box;padding:6px 6px;border:1px solid var(--border);border-radius:6px;font-size:12.5px;">
+      <button type="button" title="Quitar" onclick="_partesEdit.splice(${i},1);_partesFormRender(${id},${falta},'${moneda}')" style="background:none;border:none;color:#991b1b;cursor:pointer;font-size:15px;padding:0;">✕</button>
     </div>`).join('')}
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-top:6px;">
       <button type="button" class="btn-secondary" style="font-size:12px;padding:4px 10px;" onclick="_partesEdit.push({concepto:'',importe:${dif > 0 ? dif : 0},fecha:''});_partesFormRender(${id},${falta},'${moneda}')">+ otra parte</button>
       <span style="font-size:12px;color:${Math.abs(dif) < 1 ? '#166534' : '#b45309'};">Suma ${fmtMoneda(suma, moneda)}${Math.abs(dif) < 1 ? ' ✓' : ' · ' + (dif > 0 ? 'faltan ' : 'sobran ') + fmtMoneda(Math.abs(dif), moneda)}</span>
-      <span style="display:flex;gap:6px;">
+      ${id == null ? '' : `<span style="display:flex;gap:6px;">
         <button type="button" class="btn-secondary" style="font-size:12px;padding:4px 10px;" onclick="document.getElementById('f-partes-edit').innerHTML=''">Cancelar</button>
         <button type="button" class="btn-primary" style="width:auto;font-size:12px;padding:5px 12px;" onclick="guardarPartes(${id}, ${falta})">Guardar partes</button>
-      </span>
+      </span>`}
     </div>
   </div>`;
+}
+// (27-oct, JP) Partes también al CREAR el pago: casilla en "+ Nuevo pago pendiente".
+// El editor es el mismo (_partesFormRender con id = null): el total sale del campo Importe.
+let _partesNuevoTotal = 0;
+function _partesNuevoInit() {
+  const w = document.getElementById('f-partes-wrap');
+  if (!w) return;
+  w.innerHTML = `<label style="display:flex;align-items:center;gap:8px;font-size:13px;background:#f8fafc;padding:10px;border-radius:6px;cursor:pointer;">
+      <input id="f-en-partes" type="checkbox" onchange="_partesNuevoToggle(this.checked)">
+      <span>🧩 Se paga en partes (anticipo + saldo)</span></label>
+    <div id="f-partes-edit"></div>`;
+  document.getElementById('f-importe')?.addEventListener('change', _partesNuevoReescalar);
+}
+function _partesNuevoToggle(on) {
+  const ed = document.getElementById('f-partes-edit');
+  if (!ed) return;
+  if (!on) { ed.innerHTML = ''; _partesEdit = []; return; }
+  const rec = document.getElementById('f-recurrente');
+  if (rec && rec.checked) { rec.checked = false; rec.dispatchEvent(new Event('change')); }
+  const total = nmParse(document.getElementById('f-importe').value) || 0;
+  const vto = document.getElementById('f-fecha').value || hoyISO();
+  _partesNuevoTotal = total;
+  _partesEdit = [{ concepto: 'anticipo 50%', importe: Math.round(total / 2), fecha: hoyISO() },
+                 { concepto: 'saldo', importe: total - Math.round(total / 2), fecha: vto }];
+  _partesFormRender(null, 0, 'ARS');
+}
+// Si cambian el total y las partes cuadraban con el total anterior, se reparten en la misma proporción
+function _partesNuevoReescalar() {
+  if (!document.getElementById('f-en-partes')?.checked) return;
+  const total = nmParse(document.getElementById('f-importe').value) || 0;
+  const viejo = _partesNuevoTotal;
+  const suma = _partesEdit.reduce((s, r) => s + (+r.importe || 0), 0);
+  if (viejo > 0 && total > 0 && total !== viejo && Math.abs(suma - viejo) < 1) {
+    let acum = 0;
+    _partesEdit.forEach((r, i) => {
+      if (i < _partesEdit.length - 1) { r.importe = Math.round((+r.importe || 0) * total / viejo); acum += r.importe; }
+      else r.importe = total - acum;
+    });
+  }
+  _partesNuevoTotal = total;
+  _partesFormRender(null, 0, 'ARS');
 }
 async function guardarPartes(id, falta) {
   const partes = _partesEdit.map(r => ({ concepto: (r.concepto || '').trim(), importe: +r.importe || 0, fecha: r.fecha }));
@@ -3969,6 +4012,18 @@ async function guardarPago(id) {
   if (!concepto) return alert('Falta el concepto');
   if (importe === null || isNaN(importe)) return alert('Falta el importe');
   if (!fecha_vencimiento) return alert('Falta la fecha de vencimiento');
+  const enPartes = !id && !!document.getElementById('f-en-partes')?.checked;
+  let partes = null;
+  if (enPartes) {
+    if (recurrente) return alert('Un pago en partes no puede ser recurrente: destildá una de las dos opciones.');
+    if (!(importe > 0)) return alert('Solo se dividen en partes los pagos a realizar (importe mayor a cero).');
+    partes = _partesEdit.map(r => ({ concepto: (r.concepto || '').trim(), importe: +r.importe || 0, fecha: r.fecha }));
+    if (!partes.length) return alert('Agregá al menos una parte, o destildá "Se paga en partes".');
+    if (partes.some(r => r.importe <= 0)) return alert('Cada parte necesita un importe mayor a cero.');
+    if (partes.some(r => !r.fecha)) return alert('Cada parte necesita su fecha de vencimiento.');
+    const sumaP = partes.reduce((s, r) => s + r.importe, 0);
+    if (Math.abs(sumaP - importe) >= 1 && !confirm(`Las partes suman ${fmtMoneda(sumaP, moneda)} y el total es ${fmtMoneda(importe, moneda)}.\n\n¿Guardar igual?`)) return;
+  }
   const payload = { concepto, destinatario, importe, moneda, fecha_vencimiento, categoria, medio_pago, local, recurrente, frecuencia, recurrente_veces, notas };
   if (categoria === 'proveedores' && _origenSel.proveedor_codigo) {
     payload.proveedor_codigo = _origenSel.proveedor_codigo;
@@ -3997,9 +4052,13 @@ async function guardarPago(id) {
       }
     } else {
       payload.created_by = session.email || 'admin';
-      const { error } = await sb.from('tesoreria_pagos_pendientes').insert(payload);
+      const { data: nuevo, error } = await sb.from('tesoreria_pagos_pendientes').insert(payload).select('id').single();
       if (error) throw error;
-      toast('✓ Creado');
+      if (partes) {
+        const { error: e2 } = await sb.rpc('tesoreria_pago_partes_definir', { p_id: nuevo.id, p_partes: partes });
+        if (e2) alert('El pago se creó, pero no se pudieron guardar las partes: ' + e2.message + '\n\nAbrilo y tocá "Dividir en partes".');
+        else toast(`✓ Creado en ${partes.length} partes`);
+      } else toast('✓ Creado');
     }
     document.getElementById('modal-pago').remove();
     refrescarPendientesEnLugar(); refrescarBadgePagosPendientes();
@@ -4141,7 +4200,7 @@ if ('serviceWorker' in navigator) {
   }, true);
 })();
 </script>
-<script src="manual.js?v=32"></script>
+<script src="manual.js?v=33"></script>
 <script>
 // (24-ago) Blindaje iOS: re-suscripcion automatica de push. iOS suelta la
 // suscripcion silenciosamente cada tanto; si el permiso sigue concedido y
