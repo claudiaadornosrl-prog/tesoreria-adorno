@@ -498,6 +498,50 @@ main { padding: 16px; max-width: 1400px; margin: 0 auto; }
 .pp-fila:hover { background: #fff7ed; }
 .pp-bar { height: 6px; background: #f1f5f9; border-radius: 3px; overflow: hidden; max-width: 220px; flex: 1; }
 .pp-bar > div { height: 100%; background: var(--primary); }
+/* (27-oct, JP) Formulario de pagos pendientes · diseño B */
+.pp-in { width: 100%; padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px; box-sizing: border-box; background: #fff; font-family: inherit; color: var(--text); }
+.pp-in:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px #fde68a; }
+.pp-lbl { font-size: 12.5px; color: #374151; font-weight: 600; margin-bottom: 4px; }
+.pp-band { background: var(--primary-light); border: 1px solid #fcd34d; border-radius: 10px; padding: 10px 12px; display: grid; grid-template-columns: minmax(0,1fr) 84px 150px; gap: 10px; align-items: end; }
+.pp-band-lbl { font-size: 12px; color: #92400e; font-weight: 700; margin-bottom: 4px; }
+.pp-band .pp-in { border-color: #fcd34d; }
+.pp-in-big { font-size: 22px; font-weight: 700; padding: 5px 10px; font-variant-numeric: tabular-nums; color: #78350f; }
+.pp-form2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; margin-top: 12px; }
+.pp-sub { grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; background: #f8fafc; border-radius: 8px; padding: 10px; }
+.pp-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 14px; }
+.pp-chip { position: relative; display: inline-flex; align-items: center; gap: 5px; border: 1px solid #d1d5db; border-radius: 999px; padding: 5px 12px; font-size: 12.5px; cursor: pointer; background: #fff; color: #374151; user-select: none; }
+.pp-chip:hover { background: #fff7ed; border-color: #fcd34d; }
+.pp-chip:has(input:checked) { background: #fde68a; border-color: var(--primary); color: #78350f; font-weight: 700; }
+.pp-chip input[type=checkbox] { position: absolute; opacity: 0; width: 1px; height: 1px; pointer-events: none; }
+.pp-chip:focus-within { box-shadow: 0 0 0 3px #fde68a; }
+.pp-chips .pp-chip-sel select { border: none; background: transparent; font-size: 12.5px; padding: 0 2px; cursor: pointer; color: inherit; font-family: inherit; width: auto; min-width: 0; max-width: 170px; height: auto; box-shadow: none; }
+@media (max-width: 520px) {
+  .pp-band { grid-template-columns: 1fr 1fr; }
+  .pp-band-imp { grid-column: 1 / -1; }
+  .pp-form2, .pp-sub { grid-template-columns: 1fr; }
+}
+/* línea de tiempo de las partes */
+.pp-tl { position: relative; display: grid; margin: 8px 0 10px; }
+.pp-tl-line, .pp-tl-ok { position: absolute; top: 10px; height: 3px; border-radius: 2px; }
+.pp-tl-line { background: #e5e7eb; }
+.pp-tl-ok { background: var(--green); }
+.pp-tl-it { position: relative; text-align: center; padding: 0 3px; min-width: 0; }
+.pp-tl-dot { width: 22px; height: 22px; border-radius: 50%; margin: 0 auto; box-sizing: border-box; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; background: #fff; }
+.pp-tl-dot.ok { background: var(--green); color: #fff; }
+.pp-tl-dot.prox { border: 3px solid var(--primary); }
+.pp-tl-dot.fut { border: 2px dashed #cbd5e1; }
+.pp-tl-dot.duda { background: var(--primary); color: #fff; }
+.pp-tl-dot.canc { background: #e5e7eb; color: #6b7280; }
+.pp-tl-nom { font-size: 11.5px; margin-top: 4px; color: #374151; line-height: 1.25; overflow-wrap: anywhere; }
+.pp-tl-det { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.pp-tl-it.prox .pp-tl-nom, .pp-tl-it.prox .pp-tl-det { color: #92400e; font-weight: 700; }
+.pp-tl-it.canc { opacity: .6; }
+.pp-parte-fila { display: grid; grid-template-columns: minmax(0,1fr) 52px 108px 128px 22px; gap: 6px; align-items: center; margin-bottom: 5px; }
+@media (max-width: 520px) {
+  .pp-parte-fila { grid-template-columns: 56px minmax(0,1fr) 22px; padding-bottom: 6px; border-bottom: 1px dashed #fde68a; }
+  .pp-parte-fila > :first-child { grid-column: 1 / -1; }
+  .pp-parte-fila > input[type=date] { grid-column: 1 / 3; }
+}
 .bot-fila { display: flex; align-items: center; gap: 12px; padding: 9px 14px; border-bottom: 1px solid #f3f4f6; flex-wrap: wrap; }
 .bot-fila:last-child { border-bottom: none; }
 /* (v109) bot corriendo: punto que late + robot que "trabaja" + barra indeterminada */
@@ -3454,6 +3498,20 @@ function abrirEditarPago(id) {
   if (p) abrirFormPago(p, null);
 }
 
+// (27-oct) mañana en hora argentina (antes salía de toISOString → UTC, de noche daba pasado mañana)
+function _ppMananaAR() {
+  const d = new Date(hoyISO() + 'T12:00:00'); d.setDate(d.getDate() + 1);
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+function _ppRecurrenteCambio(on) {
+  const fw = document.getElementById('f-frecuencia-wrap');
+  if (fw) fw.style.display = on ? 'grid' : 'none';
+  const ep = document.getElementById('f-en-partes');
+  if (on && ep && ep.checked) { ep.checked = false; _partesNuevoToggle(false); }
+}
+// (27-oct, JP) Formulario de pago · diseño B: importe y vencimiento arriba en la franja ámbar,
+// el resto en dos columnas, y Recurrente / En partes / Notas / Local como botones que se despliegan.
+// Los ids de los campos son los de siempre: guardarPago, renderOrigenPago y los elegir* los leen por id.
 function abrirFormPago(existente, precarga) {
   document.getElementById('modal-pago')?.remove();
   const p = existente || precarga || {};
@@ -3461,69 +3519,66 @@ function abrirFormPago(existente, precarga) {
   const wrap = document.createElement('div');
   wrap.id = 'modal-pago';
   wrap.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,0.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
-  const fechaDefault = p.fecha_vencimiento || new Date(Date.now() + 1*86400000).toISOString().slice(0,10);  // (18-ago) default: mañana
-  wrap.innerHTML = `<div style="background:#fff;border-radius:12px;max-width:540px;width:100%;max-height:90vh;overflow:auto;padding:22px;">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+  const fechaDefault = p.fecha_vencimiento || _ppMananaAR();
+  wrap.innerHTML = `<div style="background:#fff;border-radius:12px;max-width:560px;width:100%;max-height:90vh;overflow:auto;padding:20px;box-sizing:border-box;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
       <h3 style="margin:0;font-size:18px;">${esEdit ? '✏️ Editar pago' : '+ Nuevo pago pendiente'}</h3>
-      <button onclick="document.getElementById('modal-pago').remove();" style="background:none;border:none;cursor:pointer;font-size:18px;color:#64748b;">✕</button>
+      <button onclick="document.getElementById('modal-pago').remove();" title="Cerrar" style="background:none;border:none;cursor:pointer;font-size:18px;color:#64748b;">✕</button>
     </div>
-    <div style="display:grid;gap:10px;">
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-        <label><div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600;margin-bottom:3px;">Categoría *</div>
-          <select id="f-categoria" onchange="renderOrigenPago(this.value)" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;box-sizing:border-box;">
-            ${Object.entries(CAT_LABELS).map(([k,v]) => `<option value="${k}" ${p.categoria===k?'selected':''}>${v}</option>`).join('')}
-          </select></label>
-        <label><div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600;margin-bottom:3px;">Medio de pago *</div>
-          <select id="f-medio" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;box-sizing:border-box;">
-            ${Object.entries(MEDIO_LABELS).map(([k,v]) => `<option value="${k}" ${p.medio_pago===k?'selected':''}>${v}</option>`).join('')}
-          </select></label>
-      </div>
-      <div id="f-origen-wrap" style="display:grid;gap:4px;"></div>
-      <label><div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600;margin-bottom:3px;">Concepto *</div>
-        <input id="f-concepto" type="text" value="${escHtml(p.concepto||'')}" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;box-sizing:border-box;"></label>
-      <label><div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600;margin-bottom:3px;">Destinatario</div>
-        <input id="f-destinatario" type="text" value="${escHtml(p.destinatario||'')}" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;box-sizing:border-box;"></label>
-      <div style="display:grid;grid-template-columns:2fr 1fr;gap:10px;">
-        <label><div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600;margin-bottom:3px;">Importe *</div>
-          <input id="f-importe" type="text" inputmode="decimal" value="${nmShow(p.importe)}" onfocus="wireImporte(this)"
-                 style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;box-sizing:border-box;"></label>
-        <label><div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600;margin-bottom:3px;">Moneda</div>
-          <select id="f-moneda" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;box-sizing:border-box;">
-            <option value="ARS" ${p.moneda==='ARS'||!p.moneda?'selected':''}>ARS</option>
-            <option value="USD" ${p.moneda==='USD'?'selected':''}>USD</option>
-          </select></label>
-      </div>
-      <label><div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600;margin-bottom:3px;">Fecha vencimiento *</div>
-        <input id="f-fecha" type="date" value="${fechaDefault}" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;box-sizing:border-box;"></label>
-
-      <label><div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600;margin-bottom:3px;">Local</div>
-        <select id="f-local" onchange="elegirLocalPago(this.value)" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;box-sizing:border-box;">
+    <div class="pp-band">
+      <label class="pp-band-imp"><div class="pp-band-lbl">Importe *</div>
+        <input id="f-importe" type="text" inputmode="decimal" placeholder="0" value="${nmShow(p.importe)}" onfocus="wireImporte(this)" class="pp-in pp-in-big"></label>
+      <label><div class="pp-band-lbl">Moneda</div>
+        <select id="f-moneda" class="pp-in">
+          <option value="ARS" ${p.moneda==='ARS'||!p.moneda?'selected':''}>ARS</option>
+          <option value="USD" ${p.moneda==='USD'?'selected':''}>USD</option>
+        </select></label>
+      <label><div class="pp-band-lbl">Vence *</div>
+        <input id="f-fecha" type="date" value="${fechaDefault}" class="pp-in"></label>
+    </div>
+    <div class="pp-form2">
+      <label><div class="pp-lbl">Categoría *</div>
+        <select id="f-categoria" onchange="renderOrigenPago(this.value)" class="pp-in">
+          ${Object.entries(CAT_LABELS).map(([k,v]) => `<option value="${k}" ${p.categoria===k?'selected':''}>${v}</option>`).join('')}
+        </select></label>
+      <label><div class="pp-lbl">Medio de pago *</div>
+        <select id="f-medio" class="pp-in">
+          ${Object.entries(MEDIO_LABELS).map(([k,v]) => `<option value="${k}" ${p.medio_pago===k?'selected':''}>${v}</option>`).join('')}
+        </select></label>
+      <div id="f-origen-wrap" style="grid-column:1/-1;display:grid;gap:6px;"></div>
+      <label><div class="pp-lbl">Concepto *</div>
+        <input id="f-concepto" type="text" value="${escHtml(p.concepto||'')}" class="pp-in"></label>
+      <label><div class="pp-lbl">Destinatario</div>
+        <input id="f-destinatario" type="text" value="${escHtml(p.destinatario||'')}" class="pp-in"></label>
+    </div>
+    <div class="pp-chips">
+      <label class="pp-chip" title="Se repite cada mes (u otra frecuencia)"><input id="f-recurrente" type="checkbox" ${p.recurrente?'checked':''} onchange="_ppRecurrenteCambio(this.checked)">🔁 Recurrente</label>
+      ${esEdit ? '' : `<label class="pp-chip" title="Anticipo + saldo: queda en un solo renglón hasta pagar el total"><input id="f-en-partes" type="checkbox" onchange="_partesNuevoToggle(this.checked)">🧩 En partes</label>`}
+      <label class="pp-chip" title="Notas internas"><input id="f-notas-chk" type="checkbox" ${p.notas?'checked':''} onchange="document.getElementById('f-notas-wrap').style.display=this.checked?'block':'none';if(this.checked)document.getElementById('f-notas').focus();">📝 Notas</label>
+      <span class="pp-chip pp-chip-sel" title="Local o etiqueta del pago">🏪
+        <select id="f-local" onchange="elegirLocalPago(this.value)">
           <option value="general" ${p.local==='general'||!p.local?'selected':''}>General</option>
           <option value="alcorta" ${p.local==='alcorta'?'selected':''}>Alcorta</option>
           <option value="unicenter" ${p.local==='unicenter'?'selected':''}>Unicenter</option>
           <option value="oficina" ${p.local==='oficina'?'selected':''}>Oficina</option>
-        </select></label>
-      <label style="display:flex;align-items:center;gap:8px;font-size:13px;background:#f8fafc;padding:10px;border-radius:6px;cursor:pointer;">
-        <input id="f-recurrente" type="checkbox" ${p.recurrente?'checked':''} onchange="document.getElementById('f-frecuencia-wrap').style.display=this.checked?'grid':'none';">
-        <span>🔁 Pago recurrente</span>
-      </label>
-      <div id="f-frecuencia-wrap" style="display:${p.recurrente?'grid':'none'};grid-template-columns:1fr 1fr;gap:10px;">
-        <label><div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600;margin-bottom:3px;">Frecuencia</div>
-          <select id="f-frecuencia" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;box-sizing:border-box;">
-            <option value="mensual" ${p.frecuencia==='mensual'||!p.frecuencia?'selected':''}>Mensual</option>
-            <option value="bimestral" ${p.frecuencia==='bimestral'?'selected':''}>Bimestral</option>
-            <option value="trimestral" ${p.frecuencia==='trimestral'?'selected':''}>Trimestral</option>
-            <option value="semestral" ${p.frecuencia==='semestral'?'selected':''}>Semestral</option>
-            <option value="anual" ${p.frecuencia==='anual'?'selected':''}>Anual</option>
-          </select></label>
-        <label><div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600;margin-bottom:3px;">Cantidad de veces</div>
-          <input id="f-rec-veces" type="number" min="1" max="120" value="${p.recurrente_veces||''}" placeholder="Sin fin"
-                 style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;box-sizing:border-box;"></label>
-      </div>
-      <label><div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600;margin-bottom:3px;">Notas</div>
-        <textarea id="f-notas" rows="2" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;box-sizing:border-box;font-family:inherit;">${escHtml(p.notas||'')}</textarea></label>
-      <div id="f-partes-wrap" style="min-width:0;max-width:100%;overflow-x:auto;"></div>
+        </select></span>
     </div>
+    <div id="f-frecuencia-wrap" class="pp-sub" style="display:${p.recurrente?'grid':'none'};">
+      <label><div class="pp-lbl">Frecuencia</div>
+        <select id="f-frecuencia" class="pp-in">
+          <option value="mensual" ${p.frecuencia==='mensual'||!p.frecuencia?'selected':''}>Mensual</option>
+          <option value="bimestral" ${p.frecuencia==='bimestral'?'selected':''}>Bimestral</option>
+          <option value="trimestral" ${p.frecuencia==='trimestral'?'selected':''}>Trimestral</option>
+          <option value="semestral" ${p.frecuencia==='semestral'?'selected':''}>Semestral</option>
+          <option value="anual" ${p.frecuencia==='anual'?'selected':''}>Anual</option>
+        </select></label>
+      <label><div class="pp-lbl">Cantidad de veces</div>
+        <input id="f-rec-veces" type="number" min="1" max="120" value="${p.recurrente_veces||''}" placeholder="Sin fin" class="pp-in"></label>
+    </div>
+    <div id="f-notas-wrap" style="display:${p.notas?'block':'none'};margin-top:8px;">
+      <textarea id="f-notas" rows="2" placeholder="Notas internas…" class="pp-in" style="font-size:13px;">${escHtml(p.notas||'')}</textarea>
+    </div>
+    <div id="f-partes-wrap" style="min-width:0;max-width:100%;overflow-x:auto;margin-top:8px;"></div>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px;align-items:center;">
       ${esEdit && ['pagado','por_confirmar'].includes(p.estado) ? `
         <button class="btn-secondary" style="margin-right:auto;color:#b45309;border-color:#f59e0b;"
@@ -3552,6 +3607,38 @@ async function _reabrirFicha(id) {
   refrescarBadgePagosPendientes();
 }
 function _parteNombre(h) { const m = /· (pago \d+ de \d+.*)$/.exec(h.concepto || ''); return m ? m[1] : (h.concepto || ''); }
+// (27-oct, JP) Partes como línea de tiempo: verde las pagadas, ámbar la próxima, gris punteado las que siguen
+function _ppPlata(n) { return '$' + Math.round(+n || 0).toLocaleString('es-AR'); }
+function _parteCorto(h, i) {
+  const m = /\(([^)]*)\)\s*$/.exec(h.concepto || '');
+  const t = m ? m[1] : ('Pago ' + (h.parte_nro || i + 1));
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
+function _partesTimeline(items) {
+  if (!items || !items.length) return '';
+  const n = items.length;
+  let prox = false;
+  const est = items.map(x => {
+    if (x.estado === 'pagado') return 'ok';
+    if (x.estado === 'cancelado') return 'canc';
+    if (x.estado === 'por_confirmar') return 'duda';
+    if (!prox) { prox = true; return 'prox'; }
+    return 'fut';
+  });
+  const ultOk = est.lastIndexOf('ok');
+  const mitad = 50 / n;
+  const verde = n > 1 && ultOk > 0 ? (100 - 2 * mitad) * ultOk / (n - 1) : 0;
+  const fd = f => f ? new Date(f + 'T00:00').toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' }) : '—';
+  const signo = { ok: '✓', duda: '?', canc: '✕', prox: '', fut: '' };
+  return `<div class="pp-tl" style="grid-template-columns:repeat(${n},minmax(0,1fr));">
+    ${n > 1 ? `<div class="pp-tl-line" style="left:${mitad}%;right:${mitad}%;"></div><div class="pp-tl-ok" style="left:${mitad}%;width:${verde}%;"></div>` : ''}
+    ${items.map((x, i) => `<div class="pp-tl-it ${est[i]}" title="${escHtml(x.titulo || x.nombre)}">
+      <div class="pp-tl-dot ${est[i]}">${signo[est[i]]}</div>
+      <div class="pp-tl-nom">${escHtml(x.nombre)}</div>
+      <div class="pp-tl-det">${fd(x.fecha)} · ${_ppPlata(x.importe)}</div>
+    </div>`).join('')}
+  </div>`;
+}
 function renderPartesPago(p) {
   const w = document.getElementById('f-partes-wrap');
   if (!w) return;
@@ -3578,7 +3665,7 @@ function renderPartesPago(p) {
       <div style="font-weight:700;font-size:13px;">🧩 Pago en partes · ${pct}% pagado</div>
       <div style="font-size:12px;color:#92400e;">Pagado ${fmtMoneda(p.importe_pagado, p.moneda)} · Falta ${fmtMoneda(p.importe_falta, p.moneda)}</div>
     </div>
-    <div class="pp-bar" style="max-width:none;margin-bottom:8px;"><div style="width:${pct}%"></div></div>
+    ${_partesTimeline(partes.map((h, i) => ({ nombre: _parteCorto(h, i), titulo: _parteNombre(h), fecha: h.fecha_vencimiento, importe: h.importe, estado: h.estado })))}
     <div style="overflow-x:auto;"><table style="width:100%;min-width:0;font-size:12.5px;border-collapse:collapse;">
       ${partes.map(h => {
         const f = new Date(h.fecha_vencimiento + 'T00:00').toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit'});
@@ -3631,11 +3718,12 @@ function _partesFormRender(id, falta, moneda) {
   const dif = falta - suma;
   w.innerHTML = `<div style="margin-top:8px;border:1px dashed #fcd34d;border-radius:8px;padding:10px;background:#fff;">
     <div style="font-size:12px;color:#92400e;margin-bottom:6px;">${id == null ? `Partes del pago · a repartir ${fmtMoneda(falta, moneda)} (el importe de arriba). El % es sobre el total; podés escribir el importe directo.` : `Partes que faltan pagar · a repartir ${fmtMoneda(falta, moneda)}. El % es sobre lo que falta; podés escribir el importe directo.`}</div>
-    ${_partesEdit.map((r, i) => `<div style="display:grid;grid-template-columns:minmax(0,1fr) 52px 108px 128px 22px;gap:6px;align-items:center;margin-bottom:5px;">
-      <input type="text" placeholder="anticipo / saldo…" value="${escHtml(r.concepto||'')}" onchange="_partesEdit[${i}].concepto=this.value" style="width:100%;min-width:0;box-sizing:border-box;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12.5px;">
+    ${id == null ? _partesTimeline(_partesEdit.map((r, i) => ({ nombre: r.concepto ? r.concepto.charAt(0).toUpperCase() + r.concepto.slice(1) : 'Pago ' + (i + 1), fecha: r.fecha, importe: +r.importe || 0, estado: 'pendiente' }))) : ''}
+    ${_partesEdit.map((r, i) => `<div class="pp-parte-fila">
+      <input type="text" placeholder="anticipo / saldo…" value="${escHtml(r.concepto||'')}" onchange="_partesEdit[${i}].concepto=this.value;${id == null ? `_partesFormRender(null,0,'ARS')` : ''}" style="width:100%;min-width:0;box-sizing:border-box;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12.5px;">
       <input type="number" min="0" max="100" step="1" value="${falta > 0 ? Math.round(100 * (+r.importe || 0) / falta) : 0}" title="% de lo que falta" onchange="_partesEdit[${i}].importe=Math.round(${falta}*(+this.value||0)/100);_partesFormRender(${id},${falta},'${moneda}')" style="width:100%;min-width:0;box-sizing:border-box;padding:6px 6px;border:1px solid var(--border);border-radius:6px;font-size:12.5px;">
       <input type="text" inputmode="decimal" value="${nmShow(r.importe)}" onfocus="wireImporte(this)" onchange="_partesEdit[${i}].importe=nmParse(this.value)||0;_partesFormRender(${id},${falta},'${moneda}')" style="width:100%;min-width:0;box-sizing:border-box;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12.5px;text-align:right;">
-      <input type="date" value="${r.fecha||''}" onchange="_partesEdit[${i}].fecha=this.value" style="width:100%;min-width:0;box-sizing:border-box;padding:6px 6px;border:1px solid var(--border);border-radius:6px;font-size:12.5px;">
+      <input type="date" value="${r.fecha||''}" onchange="_partesEdit[${i}].fecha=this.value;${id == null ? `_partesFormRender(null,0,'ARS')` : ''}" style="width:100%;min-width:0;box-sizing:border-box;padding:6px 6px;border:1px solid var(--border);border-radius:6px;font-size:12.5px;">
       <button type="button" title="Quitar" onclick="_partesEdit.splice(${i},1);_partesFormRender(${id},${falta},'${moneda}')" style="background:none;border:none;color:#991b1b;cursor:pointer;font-size:15px;padding:0;">✕</button>
     </div>`).join('')}
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-top:6px;">
@@ -3654,10 +3742,7 @@ let _partesNuevoTotal = 0;
 function _partesNuevoInit() {
   const w = document.getElementById('f-partes-wrap');
   if (!w) return;
-  w.innerHTML = `<label style="display:flex;align-items:center;gap:8px;font-size:13px;background:#f8fafc;padding:10px;border-radius:6px;cursor:pointer;">
-      <input id="f-en-partes" type="checkbox" onchange="_partesNuevoToggle(this.checked)">
-      <span>🧩 Se paga en partes (anticipo + saldo)</span></label>
-    <div id="f-partes-edit"></div>`;
+  w.innerHTML = '<div id="f-partes-edit"></div>';
   document.getElementById('f-importe')?.addEventListener('change', _partesNuevoReescalar);
 }
 function _partesNuevoToggle(on) {
@@ -3792,8 +3877,8 @@ function renderOrigenPago(cat) {
   _origenSel = {};
   const c = _cat_carga;
   if (!c) { wrap.innerHTML = ''; return; }
-  const lbl = (t) => `<div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600;margin-bottom:3px;">${t}</div>`;
-  const st = 'width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;box-sizing:border-box;';
+  const lbl = (t) => `<div class="pp-lbl">${t}</div>`;
+  const st = 'width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;box-sizing:border-box;background:#fff;';
   if (cat === 'impuestos') {
     wrap.innerHTML = `<label>${lbl('Impuesto')}<select id="f-orig-imp" style="${st}" onchange="elegirImpuesto(this.value)">
       <option value="">— Elegir del listado —</option>
@@ -4200,7 +4285,7 @@ if ('serviceWorker' in navigator) {
   }, true);
 })();
 </script>
-<script src="manual.js?v=33"></script>
+<script src="manual.js?v=34"></script>
 <script>
 // (24-ago) Blindaje iOS: re-suscripcion automatica de push. iOS suelta la
 // suscripcion silenciosamente cada tanto; si el permiso sigue concedido y
