@@ -1,5 +1,5 @@
 // Service Worker — Tesorería Adorno
-const CACHE_VERSION = 'tesoreria-adorno-v121-form-pago-b';
+const CACHE_VERSION = 'tesoreria-adorno-v122-saldos-sin-centavos';
 const CACHE_ASSETS = ['./', './index.html',
   './manual.js', './manifest.webmanifest', './favicon.svg', './fonts/URWGothic-Book.ttf'];
 

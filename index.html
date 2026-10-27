@@ -728,6 +728,12 @@ const fmt$ = (n, moneda) => {
   // Con centavos, como los muestra el banco (jul 2026)
   return sign + prefix + abs.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
+// (27-oct, JP) Fichas de Saldos sin centavos (redondeado). Movimientos y el resto siguen con fmt$.
+const fmtSaldo = (n, moneda) => {
+  const r = Math.round(Number(n || 0));
+  const prefix = moneda === 'USD' ? 'U$D ' : '$ ';
+  return (r < 0 ? '-' : '') + prefix + Math.abs(r).toLocaleString('es-AR', { maximumFractionDigits: 0 });
+};
 const fmtFecha = d => {
   if (!d) return '—';
   const dt = new Date(d.length === 10 ? d + 'T12:00:00' : d);
@@ -1411,8 +1417,8 @@ function renderDashboard() {
     html += `
       <div class="total-card">
         <div class="label">Total general (ARS)</div>
-        <div class="value">${fmt$(totalARS, 'ARS')}</div>
-        ${totalUSD > 0 ? `<div class="breakdown">+ ${fmt$(totalUSD, 'USD')} en USD</div>` : ''}
+        <div class="value">${fmtSaldo(totalARS, 'ARS')}</div>
+        ${totalUSD > 0 ? `<div class="breakdown">+ ${fmtSaldo(totalUSD, 'USD')} en USD</div>` : ''}
       </div>
     `;
   }
@@ -1451,7 +1457,7 @@ function renderDashboard() {
     const moneda = todas[0]?.moneda || 'ARS';
     html += `
       <div class="grupo">
-        <div class="grupo-title">${escHtml(grupo)} · subtotal ${fmt$(subtot, moneda)}</div>
+        <div class="grupo-title">${escHtml(grupo)} · subtotal ${fmtSaldo(subtot, moneda)}</div>
         <div class="cuentas-grid">
           ${todas.map(c => {
             const onClick = c._virtual
@@ -1461,7 +1467,7 @@ function renderDashboard() {
             <div class="cuenta-card" style="border-left-color:${c.color||'#f59e0b'};position:relative;">
               <div onclick="${onClick}" style="cursor:pointer;">
                 <div class="cuenta-nombre">${c.icono||'💵'} ${escHtml(c.nombre)} ${c._virtual ? '<span style="font-size:11px;color:var(--muted);">▸</span>' : ''}</div>
-                <div class="cuenta-saldo ${Number(c.saldo) < 0 ? 'negativo' : ''}">${fmt$(c.saldo, c.moneda)}</div>
+                <div class="cuenta-saldo ${Number(c.saldo) < 0 ? 'negativo' : ''}">${fmtSaldo(c.saldo, c.moneda)}</div>
                 <div class="cuenta-moneda">${c.moneda}${_actualizadoHace(c)}</div>
               </div>
               ${!c._virtual ? `
@@ -1511,7 +1517,7 @@ function verInversionesDe(grupo, moneda) {
       <button class="btn-secondary" onclick="cambiarTab('dashboard')" style="padding:6px 12px;font-size:13px;">‹ Volver</button>
     </div>
     <div class="grupo">
-      <div class="grupo-title">${escHtml(grupo)} · Inversiones ${moneda === 'USD' ? 'Dólares' : 'Pesos'} · subtotal ${fmt$(subtot, moneda)}</div>
+      <div class="grupo-title">${escHtml(grupo)} · Inversiones ${moneda === 'USD' ? 'Dólares' : 'Pesos'} · subtotal ${fmtSaldo(subtot, moneda)}</div>
       <div class="cuentas-grid">
         ${cuentas.map(c => {
           const meta = tipoLabel[c.tipo] || { nombre: c.nombre, icono: '💵' };
@@ -1519,7 +1525,7 @@ function verInversionesDe(grupo, moneda) {
             <div class="cuenta-card" style="border-left-color:${c.color||'#f97316'};position:relative;">
               <div onclick="verMovimientosCuenta(${c.id})" style="cursor:pointer;">
                 <div class="cuenta-nombre">${meta.icono} ${escHtml(meta.nombre)}</div>
-                <div class="cuenta-saldo ${Number(c.saldo) < 0 ? 'negativo' : ''}">${fmt$(c.saldo, c.moneda)}</div>
+                <div class="cuenta-saldo ${Number(c.saldo) < 0 ? 'negativo' : ''}">${fmtSaldo(c.saldo, c.moneda)}</div>
                 <div class="cuenta-moneda">${c.moneda}${_actualizadoHace(c)}</div>
               </div>
               <button onclick="event.stopPropagation();setCuentaDefaultDesdeSaldos(${c.id})"
