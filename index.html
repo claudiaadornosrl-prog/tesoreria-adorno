@@ -1583,11 +1583,14 @@ function renderDashboard() {
     const todas = [...normales, ...cardsInversionVirtual];
     if (!todas.length) continue;
 
-    const subtot = todas.reduce((s, c) => s + Number(c.saldo || 0), 0);
-    const moneda = todas[0]?.moneda || 'ARS';
+    // (29-oct, JP) Subtotal por moneda: antes sumaba pesos y dólares juntos (Galicia, PPI).
+    const enUSD = todas.filter(c => c.moneda === 'USD'), enARS = todas.filter(c => c.moneda !== 'USD');
+    const sumar = arr => arr.reduce((s, c) => s + Number(c.saldo || 0), 0);
+    const subtotTxt = [enARS.length ? fmtSaldo(sumar(enARS), 'ARS') : '', enUSD.length ? fmtSaldo(sumar(enUSD), 'USD') : '']
+      .filter(Boolean).join(' + ');
     html += `
       <div class="grupo">
-        <div class="grupo-title">${escHtml(grupo)} · subtotal ${fmtSaldo(subtot, moneda)}</div>
+        <div class="grupo-title">${escHtml(grupo)} · subtotal ${subtotTxt}</div>
         <div class="cuentas-grid">
           ${todas.map(c => {
             const onClick = c._virtual
