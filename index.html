@@ -2074,7 +2074,8 @@ async function _loadAutoTable() {
 async function exportarMovsPdf() {
   try {
     await _loadAutoTable();
-    const movs = _movsFiltrados();
+    // (30-oct, JP) en el PDF van del más viejo al más nuevo (la grilla sigue del más nuevo arriba)
+    const movs = _movsFiltrados().slice().reverse();
     if (!movs.length) return alert('No hay movimientos para exportar con estos filtros.');
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
