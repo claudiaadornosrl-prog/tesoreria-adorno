@@ -611,6 +611,16 @@ main { padding: 16px; max-width: 1400px; margin: 0 auto; }
 .toolbar.compacta select, .toolbar.compacta input { padding: 6px 8px; font-size: 12.5px; min-width: 0; }
 .toolbar.compacta input[type=date] { width: 128px; }
 .toolbar.compacta input[type=search] { flex: 1; min-width: 150px; }
+/* (30-oct, JP) filtros en pastilla, como las casillas: naranja = filtro aplicado */
+.toolbar select, .toolbar input, .mov-pag select { border-radius: 999px; border: 1px solid #d1d5db; background-color: #fff; color: #374151; font-family: inherit; cursor: pointer; }
+.toolbar.compacta select, .toolbar.compacta input { padding: 6px 10px; }
+.toolbar.compacta > * { flex-shrink: 0; }   /* no se aplastan: si no entran, la barra se desliza de costado */
+.toolbar.compacta input[type=date] { width: 134px; }
+.mov-pag select { padding: 4px 10px; font-size: 12px; }
+.toolbar select:hover, .toolbar input:hover, .mov-pag select:hover { border-color: #fcd34d; background-color: #fff7ed; }
+.toolbar select:focus, .toolbar input:focus, .mov-pag select:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px #fde68a; }
+.toolbar input[type=search] { cursor: text; }
+.toolbar .on, .toolbar input[type=search]:not(:placeholder-shown) { background-color: #fde68a; border-color: var(--primary); color: #78350f; font-weight: 700; }
 .ibtn { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border: 1px solid var(--border); border-radius: 8px; background: white; color: var(--text); cursor: pointer; flex: none; padding: 0; }
 .ibtn:hover { background: #f3f4f6; }
 .ibtn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
@@ -1875,7 +1885,7 @@ async function renderMovimientos() {
 
   cont.innerHTML = `
     <div class="toolbar compacta">
-      <select id="mov-cuenta" title="Cuenta" onchange="_movFiltroCuenta=this.value||null; renderMovimientos();">
+      <select id="mov-cuenta" class="${_movFiltroCuenta ? 'on' : ''}" title="Cuenta" onchange="_movFiltroCuenta=this.value||null; renderMovimientos();">
         <option value="">Todas las cuentas</option>${cuentasOpt}
       </select>
       <button class="ibtn" onclick="toggleCuentaDefault()" title="${esDefault ? 'Quitar como predeterminada' : 'Abrir siempre en esta cuenta (en este dispositivo)'}" style="${_movFiltroCuenta ? '' : 'opacity:0.35;pointer-events:none;'}">${esDefault ? '⭐' : '☆'}</button>
@@ -3478,29 +3488,29 @@ async function renderPagosPendientes(soloFiltro) {
         <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#94a3b8;font-size:14px;">🔍</span>
         <input id="pp-buscador" type="search" placeholder="Buscar concepto, proveedor, importe…" value="${escHtml(_filtroTexto||'')}"
                oninput="_ppBuscar(this.value)" onkeydown="if(event.key==='Enter')_ppBuscar(this.value,true)"
-               style="width:100%;padding:6px 10px 6px 30px;border:1px solid var(--border);border-radius:6px;font-size:12.5px;box-sizing:border-box;">
-        ${_filtroTexto ? `<button onclick="_ppBuscar('',true)" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);background:#f1f5f9;color:#475569;border:none;border-radius:4px;padding:3px 8px;font-size:11px;cursor:pointer;" title="Limpiar">✕</button>` : ''}
+               style="width:100%;padding:6px 12px 6px 30px;font-size:12.5px;box-sizing:border-box;">
+        ${_filtroTexto ? `<button onclick="_ppBuscar('',true)" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);background:#fff;color:#92400e;border:none;border-radius:999px;padding:3px 8px;font-size:11px;cursor:pointer;" title="Limpiar">✕</button>` : ''}
       </div>
-      <select onchange="_filtroCategoria=this.value;renderPagosPendientes();" title="Categoría">
+      <select class="${_filtroCategoria ? 'on' : ''}" onchange="_filtroCategoria=this.value;renderPagosPendientes();" title="Categoría">
         <option value="">Categorías</option>
         ${Object.entries(CAT_LABELS).map(([k,v]) => `<option value="${k}" ${_filtroCategoria===k?'selected':''}>${v}</option>`).join('')}
       </select>
-      <select onchange="_filtroLocal=this.value;renderPagosPendientes();" title="Local">
+      <select class="${_filtroLocal ? 'on' : ''}" onchange="_filtroLocal=this.value;renderPagosPendientes();" title="Local">
         <option value="">Locales</option>
         ${[...new Set(['general','alcorta','unicenter','oficina', ..._pagosPendientesCache.map(p => p.local).filter(Boolean)])].map(l =>
           `<option value="${escHtml(l)}" ${_filtroLocal===l?'selected':''}>${escHtml(l.charAt(0).toUpperCase()+l.slice(1))}</option>`).join('')}
       </select>
-      <select onchange="_filtroEstado=this.value;renderPagosPendientes();" title="Estado">
+      <select class="${_filtroEstado !== 'pendientes' ? 'on' : ''}" onchange="_filtroEstado=this.value;renderPagosPendientes();" title="Estado">
         <option value="pendientes" ${_filtroEstado==='pendientes'?'selected':''}>Pendientes</option>
         <option value="pagados" ${_filtroEstado==='pagados'?'selected':''}>Solo pagados</option>
         <option value="todos" ${_filtroEstado==='todos'?'selected':''}>Mostrar todos</option>
       </select>
       <span style="display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--muted);" title="Filtra por fecha de vencimiento">
-        <input type="date" value="${_filtroDesde}" title="Vence desde" onchange="_ppFecha('desde', this.value)">
-        <input type="date" value="${_filtroHasta}" title="Vence hasta" onchange="_ppFecha('hasta', this.value)">
-        ${(_filtroDesde || _filtroHasta) ? `<button onclick="_filtroDesde='';_filtroHasta='';renderPagosPendientes();" style="background:#f1f5f9;color:#475569;border:none;border-radius:4px;padding:4px 8px;font-size:11px;cursor:pointer;" title="Quitar el rango de fechas">✕</button>` : ''}
+        <input type="date" class="${_filtroDesde ? 'on' : ''}" value="${_filtroDesde}" title="Vence desde" onchange="_ppFecha('desde', this.value)">
+        <input type="date" class="${_filtroHasta ? 'on' : ''}" value="${_filtroHasta}" title="Vence hasta" onchange="_ppFecha('hasta', this.value)">
+        ${(_filtroDesde || _filtroHasta) ? `<button onclick="_filtroDesde='';_filtroHasta='';renderPagosPendientes();" style="background:#f1f5f9;color:#475569;border:none;border-radius:999px;padding:4px 8px;font-size:11px;cursor:pointer;" title="Quitar el rango de fechas">✕</button>` : ''}
       </span>
-      <select onchange="_ordenPendientes=this.value;renderPagosPendientes();" title="Ordenar filas">
+      <select class="${_ordenPendientes !== 'venc_asc' ? 'on' : ''}" onchange="_ordenPendientes=this.value;renderPagosPendientes();" title="Ordenar filas">
         <option value="venc_asc" ${_ordenPendientes==='venc_asc'?'selected':''}>↕ Vencimiento ↑</option>
         <option value="venc_desc" ${_ordenPendientes==='venc_desc'?'selected':''}>↕ Vencimiento ↓</option>
         <option value="importe_desc" ${_ordenPendientes==='importe_desc'?'selected':''}>↕ Importe mayor</option>
