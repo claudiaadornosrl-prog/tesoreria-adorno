@@ -708,6 +708,9 @@ tbody tr:hover { background: var(--primary-light); }
 /* Forms */
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .form-row label { font-size: 12px; font-weight: 600; color: var(--muted); display: block; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.04em; }
+/* (30-oct, JP) las casillas van siempre en pastilla (.pp-chip), también dentro de un .form-row */
+.form-row label.pp-chip { display: inline-flex; font-size: 12.5px; font-weight: 400; color: #374151; text-transform: none; letter-spacing: normal; margin-bottom: 0; }
+.form-row label.pp-chip:has(input:checked) { color: #78350f; font-weight: 700; }
 .form-row input, .form-row select, .form-row textarea {
   width: 100%; padding: 9px 11px; border: 1px solid var(--border); border-radius: 6px;
   font-size: 14px; font-family: inherit;
@@ -3163,7 +3166,7 @@ function abrirEditarScraper(id) {
           <div class="form-row" style="margin-bottom:10px;"><label>Frecuencia (horas)</label>
             <input type="number" id="sc-freq" min="1" max="168" value="${data.frecuencia_horas||12}"></div>
           <div class="form-row" style="margin-bottom:10px;">
-            <label><input type="checkbox" id="sc-activo" ${data.activo?'checked':''}> Scraper activo</label>
+            <label class="pp-chip" title="Si está apagado, el bot no corre"><input type="checkbox" id="sc-activo" ${data.activo?'checked':''}>⚡ Scraper activo</label>
           </div>
           <div class="form-actions">
             <button class="btn-secondary" onclick="document.getElementById('modal').remove()">Cancelar</button>
@@ -4038,9 +4041,9 @@ function registrarParte(parteId, padreId) {
       <label><div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600;margin-bottom:3px;">Fecha de pago</div>
         <input id="fp-fecha" type="date" value="${hoyISO()}" style="width:100%;padding:7px 9px;border:1px solid var(--border);border-radius:6px;font-size:13px;box-sizing:border-box;"></label>
     </div>
-    <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;margin-top:8px;cursor:pointer;">
-      <input id="fp-ultimo" type="checkbox" ${esUltima ? 'checked' : ''}> Es el último pago: cerrar el pendiente aunque quede diferencia</label>
-    <div style="font-size:11.5px;color:var(--muted);margin-top:4px;">Si pagás menos que la parte y no es el último, lo que falta queda como una parte nueva con la misma fecha.</div>
+    <div class="pp-chips" style="margin-top:10px;">
+      <label class="pp-chip" title="Cierra el pendiente aunque quede diferencia"><input id="fp-ultimo" type="checkbox" ${esUltima ? 'checked' : ''}>🏁 Es el último pago</label></div>
+    <div style="font-size:11.5px;color:var(--muted);margin-top:6px;">Si es el último, el pendiente se cierra aunque quede diferencia. Si no lo es y pagás menos que la parte, lo que falta queda como una parte nueva con la misma fecha.</div>
     <div style="display:flex;justify-content:flex-end;gap:6px;margin-top:8px;">
       <button type="button" class="btn-secondary" style="font-size:12px;padding:4px 10px;" onclick="document.getElementById('f-parte-reg').innerHTML=''">Cancelar</button>
       <button type="button" class="btn-primary" style="width:auto;font-size:12px;padding:5px 12px;" onclick="guardarRegistroParte(${parteId}, ${padreId})">Guardar pago</button>
