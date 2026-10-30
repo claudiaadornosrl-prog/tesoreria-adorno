@@ -3350,6 +3350,7 @@ const URGENCIA_CFG = {
   futuro:      { label: '⏳ Futuro',      color: '#475569', bg: '#f8fafc' },
 };
 let _pagosPendientesCache = [];
+let _ppVisibles = [];   // (30-oct) lo que se ve, por grupo y en orden: es lo que bajan el Excel y el PDF
 let _filtroCategoria = '', _filtroLocal = '', _filtroEstado = 'pendientes', _filtroTexto = '', _ordenPendientes = 'venc_asc';
 // (29-sep, JP) Rango de fechas de VENCIMIENTO (desde/hasta). Vacío = sin límite.
 let _filtroDesde = '', _filtroHasta = '';
@@ -3451,6 +3452,8 @@ async function renderPagosPendientes(soloFiltro) {
     });
     grupos._orden = ord;
   }
+  _ppVisibles = (grupos._orden ? ['_orden'] : ['vencido','hoy','esta_semana','este_mes','futuro','pagado','cancelado'])
+    .map(u => ({ u, items: grupos[u] || [] })).filter(g => g.items.length);
 
   cont.innerHTML = `<div style="padding:16px;">
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">
@@ -3501,14 +3504,12 @@ async function renderPagosPendientes(soloFiltro) {
         <option value="importe_asc" ${_ordenPendientes==='importe_asc'?'selected':''}>↕ Importe menor</option>
         <option value="proveedor" ${_ordenPendientes==='proveedor'?'selected':''}>↕ Proveedor A-Z</option>
       </select>
+      <button class="ibtn" onclick="exportarPendientesExcel()" title="Descargar lo que se ve en Excel"><svg class="ico s" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><path d="M8 13l8 6M16 13l-8 6"/></svg></button>
+      <button class="ibtn" onclick="exportarPendientesPdf()" title="Descargar lo que se ve en PDF"><svg class="ico s" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M9 17v-5h2a1.5 1.5 0 0 1 0 3H9"/></svg></button>
       <button class="ibtn primary" onclick="abrirFormNuevoPago()" title="Nuevo pago pendiente"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
     </div>
-    ${(grupos._orden ? ['_orden'] : ['vencido','hoy','esta_semana','este_mes','futuro','pagado','cancelado']).map(u => {
-      const items = grupos[u] || [];
-      if (!items.length) return '';
-      const cfg = u === '_orden'
-        ? { label: '📋 Ordenado', color: '#475569', bg: '#f8fafc' }
-        : (URGENCIA_CFG[u] || { label: u.toUpperCase(), color: '#475569', bg: '#f8fafc' });
+    ${_ppVisibles.map(({ u, items }) => {
+      const cfg = _ppGrupoCfg(u);
       const subtotal = items.filter(p => ['pendiente','por_confirmar','parcial'].includes(p.estado)).reduce((s,p) => s + _ppMonto(p), 0);
       return `<div style="margin-bottom:14px;">
         <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:${cfg.bg};border-left:4px solid ${cfg.color};border-radius:6px;margin-bottom:6px;">
@@ -3522,6 +3523,102 @@ async function renderPagosPendientes(soloFiltro) {
     }).join('')}
     ${_pagosPendientesCache.length === 0 ? `<div class="empty">No hay pagos pendientes. <button class="btn-primary" style="width:auto;padding:8px 14px;font-size:13px;margin-top:10px;" onclick="abrirFormNuevoPago()">+ Crear el primero</button></div>` : ''}
   </div>`;
+}
+
+// (30-oct, JP) Excel y PDF de Pendientes: bajan lo que se ve (mismos filtros, buscador, orden y grupos)
+function _ppGrupoCfg(u) {
+  return u === '_orden'
+    ? { label: '📋 Ordenado', color: '#475569', bg: '#f8fafc' }
+    : (URGENCIA_CFG[u] || { label: u.toUpperCase(), color: '#475569', bg: '#f8fafc' });
+}
+const _sinEmoji = s => String(s || '').replace(/[\p{Extended_Pictographic}️‍]/gu, '').trim();   // jsPDF no los dibuja
+function _ppVence(p) { return p.estado === 'parcial' && p.proximo_vto ? p.proximo_vto : p.fecha_vencimiento; }
+function _ppEstadoTxt(p) {
+  if (p.estado === 'parcial') return `En partes · ${_ppPct(p)}% de ${fmtMoneda(p.importe, p.moneda)}`;
+  if (p.estado === 'por_confirmar') return '¿Pagado? (a confirmar)';
+  return { pendiente: 'Pendiente', pagado: 'Pagado', cancelado: 'Cancelado' }[p.estado] || p.estado;
+}
+function _ppLocalTxt(p) { return p.local && p.local !== 'general' ? p.local.charAt(0).toUpperCase() + p.local.slice(1) : ''; }
+function _ppArchivo(ext) {
+  const hoy = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Argentina/Buenos_Aires' });
+  return `pagos_${_filtroEstado}_${hoy}.${ext}`;
+}
+async function exportarPendientesExcel() {
+  try {
+    await _loadXLSX();
+    const agrupado = !(_ppVisibles[0] && _ppVisibles[0].u === '_orden');
+    const filas = [];
+    _ppVisibles.forEach(g => g.items.forEach(p => filas.push({
+      ...(agrupado ? { Grupo: _sinEmoji(_ppGrupoCfg(g.u).label) } : {}),
+      Vence: _ppVence(p),
+      Concepto: p.concepto || '',
+      Destinatario: p.destinatario || '',
+      'Categoría': _sinEmoji(CAT_LABELS[p.categoria] || p.categoria),
+      'Medio de pago': MEDIO_LABELS[p.medio_pago] || p.medio_pago || '',
+      Local: _ppLocalTxt(p),
+      Estado: _ppEstadoTxt(p),
+      Moneda: p.moneda || 'ARS',
+      'A pagar': +p.importe > 0 ? _ppMonto(p) : null,   // en partes: lo que falta
+      'A cobrar': +p.importe < 0 ? Math.abs(+p.importe) : null,
+      'Ya pagado': p.estado === 'parcial' ? +(p.importe_pagado || 0) : null,
+      Notas: p.notas || '',
+    })));
+    if (!filas.length) return alert('No hay pagos para exportar con estos filtros.');
+    const ws = XLSX.utils.json_to_sheet(filas);
+    ws['!cols'] = [...(agrupado ? [{wch:12}] : []), {wch:10},{wch:40},{wch:28},{wch:14},{wch:14},{wch:10},{wch:30},{wch:7},{wch:14},{wch:14},{wch:14},{wch:30}];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Pagos');
+    XLSX.writeFile(wb, _ppArchivo('xlsx'));
+  } catch (e) { alert('Error al exportar: ' + e.message); }
+}
+async function exportarPendientesPdf() {
+  try {
+    const cant = _ppVisibles.reduce((s, g) => s + g.items.length, 0);
+    if (!cant) return alert('No hay pagos para exportar con estos filtros.');
+    await _loadAutoTable();
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    const f = s => s ? s.slice(0, 10).split('-').reverse().join('/') : '';
+    const plata = (v, mon) => (mon === 'USD' ? 'US$ ' : '$ ') + Number(v).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    // totales separados por moneda; los cancelados no suman
+    const tot = { pagar: {}, cobrar: {} };
+    _ppVisibles.forEach(g => g.items.forEach(p => {
+      if (p.estado === 'cancelado') return;
+      const mon = p.moneda || 'ARS', lado = +p.importe > 0 ? 'pagar' : 'cobrar';
+      tot[lado][mon] = (tot[lado][mon] || 0) + (lado === 'pagar' ? _ppMonto(p) : Math.abs(+p.importe));
+    }));
+    const totTxt = o => Object.entries(o).map(([mon, v]) => plata(v, mon)).join(' + ');
+    const titulo = { pagados: 'Pagos pagados', todos: 'Pagos (todos)' }[_filtroEstado] || 'Pagos pendientes';
+    const filtros = [
+      _filtroCategoria && _sinEmoji(CAT_LABELS[_filtroCategoria] || _filtroCategoria),
+      _filtroLocal && 'Local ' + _filtroLocal,
+      _filtroDesde && 'vence desde ' + f(_filtroDesde),
+      _filtroHasta && 'vence hasta ' + f(_filtroHasta),
+      _filtroTexto && _filtroTexto.trim().length >= 2 && `búsqueda "${_filtroTexto.trim()}"`,
+    ].filter(Boolean);
+    doc.setFontSize(13); doc.text(titulo, 14, 12);
+    doc.setFontSize(9); doc.setTextColor(100);
+    doc.text([`${cant} pagos`, ...filtros, 'al ' + new Date().toLocaleDateString('es-AR'), 'Claudia Adorno SRL'].join(' · '), 14, 17); doc.setTextColor(0);
+    const body = [];
+    _ppVisibles.forEach(g => {
+      if (g.u !== '_orden') {
+        const c = _ppGrupoCfg(g.u);
+        body.push([{ content: `${_sinEmoji(c.label)} (${g.items.length})`, colSpan: 9, styles: { fillColor: c.bg, textColor: c.color, fontStyle: 'bold' } }]);
+      }
+      g.items.forEach(p => body.push([f(_ppVence(p)), (p.concepto || '').slice(0, 60), (p.destinatario || '').slice(0, 35),
+        _sinEmoji(CAT_LABELS[p.categoria] || p.categoria), MEDIO_LABELS[p.medio_pago] || p.medio_pago || '', _ppLocalTxt(p), _ppEstadoTxt(p),
+        +p.importe > 0 ? plata(_ppMonto(p), p.moneda) : '', +p.importe < 0 ? plata(Math.abs(+p.importe), p.moneda) : '']));
+    });
+    doc.autoTable({
+      startY: 21, styles: { fontSize: 7.5, cellPadding: 1.4 }, headStyles: { fillColor: [22, 163, 74] },
+      columnStyles: { 7: { halign: 'right' }, 8: { halign: 'right' } },
+      head: [['Vence', 'Concepto', 'Destinatario', 'Categoría', 'Medio', 'Local', 'Estado', 'A pagar', 'A cobrar']],
+      body,
+      foot: [[{ content: _filtroEstado === 'todos' ? 'Totales (sin cancelados)' : 'Totales', colSpan: 7 }, totTxt(tot.pagar), totTxt(tot.cobrar)]],
+      footStyles: { fillColor: [241, 245, 249], textColor: 20, fontStyle: 'bold', halign: 'right' },
+    });
+    doc.save(_ppArchivo('pdf'));
+  } catch (e) { alert('Error al exportar: ' + e.message); }
 }
 
 // (26-oct) lo que todavía hay que pagar de un pendiente: en los pagos en partes, lo que falta
@@ -4425,7 +4522,7 @@ if ('serviceWorker' in navigator) {
   }, true);
 })();
 </script>
-<script src="manual.js?v=34"></script>
+<script src="manual.js?v=35"></script>
 <script>
 // (24-ago) Blindaje iOS: re-suscripcion automatica de push. iOS suelta la
 // suscripcion silenciosamente cada tanto; si el permiso sigue concedido y
