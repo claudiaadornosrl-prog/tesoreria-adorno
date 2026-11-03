@@ -1,5 +1,5 @@
 // Service Worker — Tesorería Adorno
-const CACHE_VERSION = 'tesoreria-adorno-v139-facturas-privadas';
+const CACHE_VERSION = 'tesoreria-adorno-v140-doble-factor';
 const CACHE_ASSETS = ['./', './index.html',
   './manual.js', './manifest.webmanifest', './favicon.svg', './fonts/URWGothic-Book.ttf'];
 
