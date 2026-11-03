@@ -2217,8 +2217,7 @@ async function guardarEditMov(id) {
       const path = `${m0.cuenta_id || 0}/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
       const { error: upErr } = await sb.storage.from('tesoreria-facturas').upload(path, file, { contentType: file.type || 'image/jpeg' });
       if (upErr) throw new Error('No pude subir el archivo: ' + upErr.message);
-      const { data: pub } = sb.storage.from('tesoreria-facturas').getPublicUrl(path);
-      patch.factura_path = pub.publicUrl;   // el trigger resetea el circuito (se vuelve a subir al OneDrive)
+      patch.factura_path = _tfUrl(path);   // el trigger resetea el circuito (se vuelve a subir al OneDrive)
       patch.observacion_control = null; patch.observacion_control_por = null; patch.observacion_control_at = null;
     }
 
@@ -2274,12 +2273,8 @@ async function borrarMov(id) {
     // Si era transferencia, avisar que queda la pata contraria
     if (m.transferencia_id && !confirm('Este movimiento es parte de una TRANSFERENCIA: la otra pata NO se borra sola.\n¿Borrar igual?')) return;
     // Si tiene factura en el bucket, borrarla también
-    if (m.factura_path) {
-      const pref = SUPA_URL + '/storage/v1/object/public/tesoreria-facturas/';
-      if (m.factura_path.startsWith(pref)) {
-        await sb.storage.from('tesoreria-facturas').remove([m.factura_path.slice(pref.length)]);
-      }
-    }
+    const obj = _tfObjeto(m.factura_path);
+    if (obj) await sb.storage.from('tesoreria-facturas').remove([obj]);
     // 🚨 Pasa por la RPC y no por .delete() directo: así el motivo es
     // obligatorio y queda en tesoreria_movimientos_borrados. Antes este botón
     // borraba sin dejar ningún rastro de quién ni por qué.
@@ -2388,7 +2383,8 @@ function renderListaMovimientos(movs, tenencias = []) {
             } else if (m.factura_path) {
               const etapa = m.archivo_item_id ? ((m.archivo_carpeta || '').split('/').filter(Boolean).pop() || '') : '';
               const tit = m.archivo_item_id ? `${rotulo} en OneDrive: ${m.archivo_carpeta || ''} / ${m.archivo_nombre || ''}` : `${rotulo} adjunto — se sube al OneDrive en la próxima pasada (cada hora)`;
-              firma = `<a href="${escHtml(m.factura_path)}" target="_blank" rel="noopener" class="chip" style="background:${esDep ? '#dcfce7;color:#166534' : '#e0e7ff;color:#3730a3'};font-size:11px;font-weight:600;text-decoration:none;" title="${escHtml(tit)}">${esDep ? '🏦' : '📎'} ${rotulo}${m.archivo_item_id ? ' ✓' : ' ⏳'}${etapa && !esDep ? ' · ' + escHtml(etapa) : ''}</a>`;
+              const tfObj = _tfObjeto(m.factura_path);   // todavía en el bucket privado → link firmado
+              firma = `<a href="${tfObj ? '#' : escHtml(m.factura_path)}" ${tfObj ? `data-tf="${escHtml(tfObj)}" onclick="return abrirRespaldo(this, event)"` : ''} target="_blank" rel="noopener" class="chip" style="background:${esDep ? '#dcfce7;color:#166534' : '#e0e7ff;color:#3730a3'};font-size:11px;font-weight:600;text-decoration:none;" title="${escHtml(tit)}">${esDep ? '🏦' : '📎'} ${rotulo}${m.archivo_item_id ? ' ✓' : ' ⏳'}${etapa && !esDep ? ' · ' + escHtml(etapa) : ''}</a>`;
             } else if (m.respaldo_tipo === 'factura' || esDep) {
               // Purgada del bucket a los 30 días del envío — el respaldo quedó
               // en el mail a administración y el archivero de Anita.
@@ -2477,6 +2473,38 @@ function renderListaMovimientos(movs, tenencias = []) {
     </div>
     ${_movPagHtml(movs.length)}
   `;
+  _tfFirmarLinks(cont);
+}
+
+// ── Bucket tesoreria-facturas PRIVADO (3-nov-2026, seguridad) ─────────
+// Desde el celu el archivo va al bucket y factura_path guarda la ruta de storage
+// (…/object/tesoreria-facturas/<ruta>); a la hora 14_archivar_respaldos lo pasa al
+// OneDrive y factura_path queda con el link de OneDrive. Mientras está en el bucket
+// se abre con una URL firmada. Las rutas viejas (…/object/public/…) también valen.
+function _tfUrl(path) { return SUPA_URL + '/storage/v1/object/tesoreria-facturas/' + path; }
+function _tfObjeto(url) {
+  const m = /\/storage\/v1\/object\/(?:public\/|authenticated\/)?tesoreria-facturas\/([^?#]+)/.exec(url || '');
+  return m ? m[1] : null;
+}
+async function _tfFirmarLinks(cont) {
+  const links = [...(cont || document).querySelectorAll('a[data-tf]')];
+  if (!links.length) return;
+  const { data, error } = await sb.storage.from('tesoreria-facturas')
+    .createSignedUrls([...new Set(links.map(a => a.dataset.tf))], 3600);
+  if (error || !data) return;   // queda el clic, que firma en el momento
+  const porRuta = Object.fromEntries(data.filter(d => d.signedUrl).map(d => [d.path, d.signedUrl]));
+  const vence = String(Date.now() + 3500 * 1000);
+  links.forEach(a => { if (porRuta[a.dataset.tf]) { a.href = porRuta[a.dataset.tf]; a.dataset.vence = vence; } });
+}
+async function abrirRespaldo(a, ev) {
+  ev.stopPropagation();
+  if (Number(a.dataset.vence) > Date.now()) return true;   // ya firmado: abre el link
+  ev.preventDefault();
+  const { data, error } = await sb.storage.from('tesoreria-facturas').createSignedUrl(a.dataset.tf, 3600);
+  if (error || !data?.signedUrl) { toast('No pude abrir el archivo: ' + (error?.message || 'sin permiso'), true); return false; }
+  a.href = data.signedUrl; a.dataset.vence = String(Date.now() + 3500 * 1000);
+  if (!window.open(data.signedUrl, '_blank')) toast('Tocá de nuevo para abrir el archivo');   // bloqueador de ventanas
+  return false;
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -3057,9 +3085,8 @@ async function guardarMovimiento() {
         const { error: upErr } = await sb.storage.from('tesoreria-facturas')
           .upload(path, file, { contentType: file.type || 'image/jpeg' });
         if (upErr) throw new Error('No pude subir la factura: ' + upErr.message);
-        const { data: pub } = sb.storage.from('tesoreria-facturas').getPublicUrl(path);
         data.respaldo_tipo = _respaldoCarga;   // 'factura' | 'deposito'
-        data.factura_path = pub.publicUrl;
+        data.factura_path = _tfUrl(path);
       } else if (_tipoCarga === 'egreso' && _respaldoCarga === 'recibo') {
         // Egreso con recibo firmado: circuito de firma de siempre (PDF con QR).
         // (9-sep) Vale también para admin/Oficina cuando eligen "Recibo firmado"
