@@ -1,5 +1,5 @@
 // Service Worker — Tesorería Adorno
-const CACHE_VERSION = 'tesoreria-adorno-v141-cara-30-dias';
+const CACHE_VERSION = 'tesoreria-adorno-v142-falta-entrega';
 const CACHE_ASSETS = ['./', './index.html',
   './manual.js', './manifest.webmanifest', './favicon.svg', './fonts/URWGothic-Book.ttf'];
 
