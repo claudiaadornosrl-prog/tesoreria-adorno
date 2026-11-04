@@ -3398,7 +3398,7 @@ const URGENCIA_CFG = {
   este_mes:    { label: '🗓️ Este mes',   color: '#0891b2', bg: '#ecfeff' },
   futuro:      { label: '⏳ Futuro',      color: '#475569', bg: '#f8fafc' },
   // (4-nov-2026, JP para Marisa) mercadería pagada por adelanto: sigue en Pendientes hasta que llega
-  entrega:     { label: '📦 Pagados · falta la mercadería', color: '#be185d', bg: '#fdf2f8' },
+  entrega:     { label: '🚚 Pagados · falta la mercadería', color: '#be185d', bg: '#fdf2f8' },
 };
 let _pagosPendientesCache = [];
 let _ppVisibles = [];   // (30-oct) lo que se ve, por grupo y en orden: es lo que bajan el Excel y el PDF
@@ -3699,10 +3699,10 @@ function renderPagoItem(p) {
   // (4-nov) mercadería por adelanto: pagado espera la entrega; sin pagar avisa que viene con entrega
   const entregaBadge = !p.espera_entrega || p.estado === 'cancelado' || faltaMerc ? ''
     : p.entregado_at
-      ? `<span style="background:#fce7f3;color:#9d174d;padding:1px 8px;border-radius:10px;font-size:10px;font-weight:600;" title="Marcó ${escHtml(p.entregado_por || '')}">📦 ✓ LLEGÓ ${new Date(p.entregado_at).toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit'})}</span>`
-      : `<span style="background:#fce7f3;color:#9d174d;padding:1px 8px;border-radius:10px;font-size:10px;font-weight:600;" title="Cuando se pague sigue en Pendientes hasta que llegue la mercadería">📦 ESPERA MERCADERÍA</span>`;
+      ? `<span style="background:#fce7f3;color:#9d174d;padding:1px 8px;border-radius:10px;font-size:10px;font-weight:600;" title="Marcó ${escHtml(p.entregado_por || '')}">🚚 ✓ LLEGÓ ${new Date(p.entregado_at).toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit'})}</span>`
+      : `<span style="background:#fce7f3;color:#9d174d;padding:1px 8px;border-radius:10px;font-size:10px;font-weight:600;" title="Cuando se pague sigue en Pendientes hasta que llegue la mercadería">🚚 ESPERA MERCADERÍA</span>`;
   const estadoBadge = faltaMerc
-    ? `<span style="background:#fce7f3;color:#9d174d;padding:1px 8px;border-radius:10px;font-size:10px;font-weight:600;" title="Ya está pagado: tocá 📦 Llegó cuando entreguen la mercadería">📦 PAGADO · FALTA LA MERCADERÍA</span>`
+    ? `<span style="background:#fce7f3;color:#9d174d;padding:1px 8px;border-radius:10px;font-size:10px;font-weight:600;" title="Ya está pagado: tocá 🚚 Llegó cuando entreguen la mercadería">🚚 PAGADO · FALTA LA MERCADERÍA</span>`
     : esParcial
     ? `<span style="background:#fef3c7;color:#92400e;padding:1px 8px;border-radius:10px;font-size:10px;font-weight:600;" title="Pago en partes: ${p.partes_pagadas} de ${p.partes_n} pagadas">🧩 EN PARTES · ${_ppPct(p)}%</span>`
     : p.estado === 'pagado'
@@ -3712,7 +3712,7 @@ function renderPagoItem(p) {
       : (p.estado === 'por_confirmar'
         ? `<span style="background:#fef3c7;color:#92400e;padding:1px 8px;border-radius:10px;font-size:10px;font-weight:600;" title="El sistema detectó un egreso bancario del mismo importe">🤔 ¿PAGADO?</span>` : ''));
   const acciones = faltaMerc
-    ? `<button class="btn-secondary" style="font-size:12px;padding:5px 10px;color:#be185d;border-color:#f9a8d4;font-weight:700;" title="Llegó la mercadería: sale de Pendientes" onclick="event.stopPropagation();marcarEntregado(${p.id}, true)">📦 Llegó</button>
+    ? `<button class="btn-secondary" style="font-size:12px;padding:5px 10px;color:#be185d;border-color:#f9a8d4;font-weight:700;" title="Llegó la mercadería: sale de Pendientes" onclick="event.stopPropagation();marcarEntregado(${p.id}, true)">🚚 Llegó</button>
        <button class="btn-secondary" style="font-size:12px;padding:5px 10px;" onclick="event.stopPropagation();abrirEditarPago(${p.id})">Ver</button>`
     : esParcial
     ? `<button class="btn-secondary" style="font-size:12px;padding:5px 10px;color:#b45309;border-color:#fcd34d;font-weight:700;" title="Registrar el próximo pago de esta serie" onclick="event.stopPropagation();abrirEditarPago(${p.id})">➕ Pago</button>
@@ -3787,7 +3787,7 @@ async function marcarEntregado(id, llego) {
       .eq('id', id);
     if (error) throw error;
     document.getElementById('modal-pago')?.remove();
-    toast(llego ? '📦 Mercadería recibida' : '📦 Vuelve a esperar la mercadería');
+    toast(llego ? '🚚 Mercadería recibida' : '🚚 Vuelve a esperar la mercadería');
     refrescarPendientesEnLugar();
   } catch (e) { alert('Error: ' + e.message); }
 }
@@ -3882,7 +3882,7 @@ function abrirFormPago(existente, precarga) {
     <div class="pp-chips">
       <label class="pp-chip" title="Se repite cada mes (u otra frecuencia)"><input id="f-recurrente" type="checkbox" ${p.recurrente?'checked':''} onchange="_ppRecurrenteCambio(this.checked)">🔁 Recurrente</label>
       ${esEdit ? '' : `<label class="pp-chip" title="Anticipo + saldo: queda en un solo renglón hasta pagar el total"><input id="f-en-partes" type="checkbox" onchange="_partesNuevoToggle(this.checked)">🧩 En partes</label>`}
-      <label class="pp-chip" title="Mercadería pagada por adelanto: ya pagado sigue en Pendientes hasta que marques que llegó"><input id="f-entrega" type="checkbox" ${p.espera_entrega?'checked':''}>📦 Espera mercadería</label>
+      <label class="pp-chip" title="Mercadería pagada por adelanto: ya pagado sigue en Pendientes hasta que marques que llegó"><input id="f-entrega" type="checkbox" ${p.espera_entrega?'checked':''}>🚚 Espera mercadería</label>
       <label class="pp-chip" title="Notas internas"><input id="f-notas-chk" type="checkbox" ${p.notas?'checked':''} onchange="document.getElementById('f-notas-wrap').style.display=this.checked?'block':'none';if(this.checked)document.getElementById('f-notas').focus();">📝 Notas</label>
       <span class="pp-chip pp-chip-sel" title="Local o etiqueta del pago">🏪
         <select id="f-local" onchange="elegirLocalPago(this.value)">
@@ -3911,10 +3911,10 @@ function abrirFormPago(existente, precarga) {
     ${esEdit && p.espera_entrega && p.estado !== 'cancelado' ? `
     <div style="display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-top:12px;padding:8px 12px;background:#fdf2f8;border-left:4px solid #be185d;border-radius:6px;font-size:12.5px;color:#9d174d;">
       ${p.entregado_at
-        ? `<span>📦 La mercadería llegó el ${new Date(p.entregado_at).toLocaleDateString('es-AR')}${p.entregado_por ? ' · marcó ' + escHtml(p.entregado_por) : ''}</span>
+        ? `<span>🚚 La mercadería llegó el ${new Date(p.entregado_at).toLocaleDateString('es-AR')}${p.entregado_por ? ' · marcó ' + escHtml(p.entregado_por) : ''}</span>
            <button class="btn-secondary" style="font-size:12px;padding:5px 10px;" onclick="marcarEntregado(${p.id}, false)">↩ No llegó</button>`
-        : `<span>📦 ${p.estado === 'pagado' ? 'Pagado: falta que llegue la mercadería' : 'Cuando se pague, sigue en Pendientes hasta que llegue la mercadería'}</span>
-           <button class="btn-secondary" style="font-size:12px;padding:5px 10px;color:#be185d;border-color:#f9a8d4;font-weight:700;" onclick="marcarEntregado(${p.id}, true)">📦 Llegó la mercadería</button>`}
+        : `<span>🚚 ${p.estado === 'pagado' ? 'Pagado: falta que llegue la mercadería' : 'Cuando se pague, sigue en Pendientes hasta que llegue la mercadería'}</span>
+           <button class="btn-secondary" style="font-size:12px;padding:5px 10px;color:#be185d;border-color:#f9a8d4;font-weight:700;" onclick="marcarEntregado(${p.id}, true)">🚚 Llegó la mercadería</button>`}
     </div>` : ''}
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px;align-items:center;">
       ${esEdit && ['pagado','por_confirmar'].includes(p.estado) ? `
