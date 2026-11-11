@@ -740,6 +740,26 @@ tbody tr:hover { background: var(--primary-light); }
 #toast.err { background: var(--red); }
 .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid #e5e7eb; border-top-color: var(--primary); border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; }
 @keyframes spin { to { transform: rotate(360deg); } }
+/* (11-nov) Autorización de recibos de la cuenta del local: cara → celu → clave */
+.ra-fondo { position: fixed; inset: 0; background: rgba(15,23,42,0.55); display: flex; align-items: center; justify-content: center; z-index: 9998; padding: 16px; }
+.ra-caja { background: #fff; border-radius: 26px; max-width: 460px; width: 100%; padding: 20px 22px; box-shadow: 0 20px 50px rgba(0,0,0,.25); max-height: calc(100dvh - 32px); overflow: auto; }
+.ra-caja h3 { margin: 0 0 4px; font-size: 18px; color: #1e293b; }
+.ra-sub { font-size: 12px; color: var(--muted); margin-bottom: 10px; line-height: 1.45; }
+.ra-video-box { position: relative; border-radius: 22px; overflow: hidden; background: #0f172a; aspect-ratio: 4 / 3; margin: 8px 0; }
+.ra-video-box video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); display: block; }
+.ra-msg { position: absolute; left: 10px; right: 10px; bottom: 10px; background: rgba(15,23,42,.72); color: #fff; border-radius: 999px; padding: 6px 14px; font-size: 13px; text-align: center; }
+.ra-msg.ok { background: rgba(6,95,70,.88); }
+.ra-lista { background: #f8fafc; border-radius: 18px; padding: 10px 14px; margin: 8px 0; font-size: 13px; }
+.ra-lista.sin { background: #fef2f2; }
+.ra-p { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-top: 1px solid #eef2f7; }
+.ra-lista b + .ra-p { border-top: none; }
+.ra-p .nom { flex: 1; min-width: 0; }
+.ra-chip { display: inline-block; font-size: 10px; font-weight: 700; border-radius: 999px; padding: 1px 8px; background: #fef3c7; color: #92400e; margin-left: 6px; vertical-align: 1px; }
+.ra-clave { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+.ra-clave input { flex: 1; min-width: 140px; padding: 9px 14px; border: 1.5px solid var(--border); border-radius: 999px; font-size: 14px; }
+.ra-botones { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; flex-wrap: wrap; }
+.ra-botones button, .ra-p button { border-radius: 999px; }
+.ra-spin { display: inline-block; width: 12px; height: 12px; border: 2px solid #cbd5e1; border-top-color: #f59e0b; border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -2px; margin-right: 6px; }
 
 @media (max-width: 600px) {
   .form-grid { grid-template-columns: 1fr; }
@@ -1009,9 +1029,12 @@ async function initSession() {
     }
   }
   // Usuario genérico de local (alcorta@/unicenter@, gerente sin legajo):
-  // también solo comprobantes en la pestaña de carga (los recibos exigen legajo).
+  // también solo comprobantes en la pestaña de carga.
+  // (11-nov, JP) el genérico TAMBIÉN emite recibos firmados, pero cada uno lo autoriza la
+  // encargada o la cajera del local (cara → aviso al celu → usuario y clave): ver autorizarRecibo().
   if (u.rol === 'gerente' && !u.empleado_id && u.local_gerencia !== 'oficina') {
     session.soloComprobantes = true;
+    session.esGenerico = true;
   }
   enterApp();
   return true;
@@ -1025,6 +1048,7 @@ function enterApp() {
     session.localGerencia === 'oficina' ? 'Oficina (admin)' :
     session.esCajera ? 'Cajera · ' + (session.localGerencia || '') :
     (session.soloComprobantes && session.miCaja) ? 'Comprobantes · ' + (session.localGerencia || '') :
+    session.esGenerico ? 'Local · ' + (session.localGerencia || '') :   // (11-nov) la cuenta del local no es una encargada
     'Encargada · ' + (session.localGerencia || '')
   );
   // (9-sep) la pestaña de carga se llama según lo que puede hacer el usuario
@@ -1341,7 +1365,7 @@ function abrirModalPostCarga(movId) {
         </button>
       </div>
       <div style="text-align:center;margin-top:10px;font-size:11px;color:#94a3b8;">
-        Si lo cerrás, podés bajarlo igual desde la tab "Movimientos".
+        ${session.soloComprobantes ? 'Si lo cerrás, lo bajás igual desde "Mis comprobantes" (acá abajo) o desde Movimientos.' : 'Si lo cerrás, podés bajarlo igual desde la tab "Movimientos".'}
       </div>
     </div>
   `;
@@ -1351,8 +1375,199 @@ function abrirModalPostCarga(movId) {
 function cerrarModalPostCarga() {
   const o = document.getElementById('modal-post-carga');
   if (o) o.remove();
-  cambiarTab('dashboard');
+  cambiarTab(session.soloComprobantes ? 'cargar' : 'dashboard');   // (11-nov) la cuenta del local vuelve a Comprobantes
   cargar();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// RECIBOS DESDE LA CUENTA DEL LOCAL, CON AUTORIZACIÓN (11-nov-2026, JP)
+// La cuenta genérica (alcorta@ / unicenter@) ve "🧾 Recibo firmado" en Comprobantes. Para emitirlo lo autoriza
+// alguien de rango (encargada o cajera de ESE local, o un admin), con el mismo formato del POS / Infraestructura:
+//   1) la cara: la cámara de la PC lee la cara (face-api) y la base la compara con las registradas en el POS (pos_caras)
+//   2) un aviso al celu de la persona elegida (Aceptar / Rechazar en el Hub o RRHH); se espera hasta 3 minutos
+//   3) usuario y clave de quien autoriza, en un cliente aparte (no toca la sesión del local; si tiene código, lo pide)
+// El recibo autorizado (importe, caja, categoría, descripción) queda guardado en la autorización y la base graba
+// EXACTAMENTE eso con tesoreria_recibo_emitir (un uso, 10 minutos). SQL: sql/09_recibo_local_con_autorizacion.sql
+// ═══════════════════════════════════════════════════════════════════════
+const RA_CDN = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.13';
+const RA_SRI = 'sha384-5SEinnOIOK1Nl6bzEIWwfXWMg4EaJhN2bXKgrjYC0Bq+fYNZHwhD3ntM92lTHnfL';   // dist/face-api.js
+const _RA_MODO = { cara: '(con la cara)', push: '(desde el celu)', clave: '(con su clave)' };
+const _RA_MODO_PDF = { cara: 'con la cara', push: 'desde el celu', clave: 'con su usuario y clave' };
+// "ADORNO, ANDREA" → "Andrea Adorno" (para el papel)
+function _raNombre(n) { const [ape, nom] = String(n || '').split(','); const t = s => (s || '').trim().toLowerCase().replace(/(^|\s)\S/g, x => x.toUpperCase()); return nom ? t(nom) + ' ' + t(ape) : t(ape); }
+const _raEsp = ms => new Promise(r => setTimeout(r, ms));
+function _raPila(n) { if (!n) return ''; const p = (String(n).split(',')[1] || String(n)).trim().toLowerCase(); return p.replace(/(^|\s)\S/g, x => x.toUpperCase()); }
+let _raLibP = null, _raStream = null, RA = null;
+function _raLib() {
+  return _raLibP || (_raLibP = new Promise((ok, mal) => {
+    const sc = document.createElement('script');
+    sc.src = RA_CDN + '/dist/face-api.js'; sc.integrity = RA_SRI; sc.crossOrigin = 'anonymous';
+    sc.onload = async () => {
+      try { const m = RA_CDN + '/model'; await Promise.all([faceapi.nets.tinyFaceDetector.loadFromUri(m), faceapi.nets.faceLandmark68TinyNet.loadFromUri(m), faceapi.nets.faceRecognitionNet.loadFromUri(m)]); ok(true); }
+      catch (e) { _raLibP = null; mal(e); }
+    };
+    sc.onerror = () => { _raLibP = null; sc.remove(); mal(new Error('No pude bajar el reconocimiento de caras')); };
+    document.head.appendChild(sc);
+  }));
+}
+async function _raCam(video) {
+  const st = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }, audio: false });
+  if (!video.isConnected) { st.getTracks().forEach(t => t.stop()); throw new Error('ventana cerrada'); }   // ya pasaron al celu o cancelaron
+  _raStream = st; video.srcObject = st; await video.play();
+}
+function _raCamOff() { if (_raStream) { _raStream.getTracks().forEach(t => t.stop()); _raStream = null; } }
+async function _raLeer(video) {
+  const d = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 })).withFaceLandmarks(true).withFaceDescriptor();
+  return d ? d.descriptor : null;
+}
+function _raModal(html) {
+  let o = document.getElementById('modal-aut');
+  if (!o) { o = document.createElement('div'); o.id = 'modal-aut'; o.className = 'ra-fondo'; document.body.appendChild(o); }
+  o.innerHTML = `<div class="ra-caja">${html}</div>`;
+  return o;
+}
+function _raCancelarPedido(id) { if (id) sb.rpc('pos_autorizacion_cancelar', { p_id: id }).then(() => {}, () => {}); }   // .then: sin él la llamada no sale
+function _raFin(v) {
+  const A = RA; if (!A || A.fin) return;
+  A.fin = true; clearInterval(A.poll); if (A.cortar) A.cortar(); _raCamOff(); RA = null;
+  document.getElementById('modal-aut')?.remove();
+  A.resolve(v);
+}
+function _raCancelar() { if (RA) _raCancelarPedido(RA.id); _raFin(null); }
+
+// Devuelve el id de la autorización aceptada, o null si se canceló
+function autorizarRecibo(recibo) {
+  const caja = _cuentas.find(c => c.id === recibo.cuenta_id) || session.miCaja || {};
+  const cat = _categorias.find(c => c.id === recibo.categoria_id);
+  const resumen = fmt$(recibo.importe) + ' · ' + (caja.nombre || 'Caja') + (cat ? ' · ' + cat.nombre : '') + ' · ' + recibo.descripcion;
+  return new Promise(async resolve => {
+    RA = { recibo, resumen, resolve, local: String(session.localGerencia || '').toLowerCase(), id: null, poll: null, fin: false, desde: 0, lista: [] };
+    if (await _raCara()) return;   // 1) la cámara: autorizado o cancelado
+    _raVentana();                  // 2) aviso al celu y 3) usuario y clave
+  });
+}
+
+// 1) La cámara. true = terminó (autorizado o cancelado); false = seguir con el celu o la clave
+async function _raCara() {
+  const A = RA; let eq = [];
+  try { const { data } = await sb.rpc('pos_equipo', { p_local: A.local }); eq = data || []; } catch (e) {}
+  if (RA !== A || A.fin) return true;
+  if (!eq.some(e => e.cara) || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return false;   // nadie con la cara registrada o PC sin cámara
+  _raModal(`<h3>🔐 Autorizar el recibo · mirá a la cámara</h3>
+    <div class="ra-sub">${escHtml(A.resumen)}</div>
+    <div class="ra-video-box"><video id="ra-video" autoplay muted playsinline></video><div class="ra-msg" id="ra-msg">Abriendo la cámara…</div></div>
+    <div class="ra-sub" style="margin:8px 0 0;">La encargada o la cajera del local mira a la cámara y queda autorizado con su nombre. Si no está, pedíselo al celu.</div>
+    <div class="ra-botones"><button class="btn-secondary" onclick="_raCancelar()">Cancelar</button><button class="btn-secondary" id="ra-otro">📱 Pedir al celu o con clave</button></div>`);
+  // "Pedir al celu" y "Cancelar" cortan la espera enseguida, aunque la librería de caras se esté bajando (la 1ª vez tarda)
+  let saltar = false, cortar; const corte = new Promise(r => { cortar = r; }); A.cortar = cortar;
+  document.getElementById('ra-otro').onclick = () => { saltar = true; cortar(); };
+  const video = document.getElementById('ra-video');
+  const msg = (t, ok) => { const m = document.getElementById('ra-msg'); if (m) { m.textContent = t; m.classList.toggle('ok', !!ok); } };
+  const sigue = () => RA === A && !A.fin && !saltar && !!document.getElementById('ra-video');
+  let camOk = true;
+  const carga = Promise.all([_raLib(), _raCam(video)]); carga.catch(() => {});   // si se corta antes, que no quede un error suelto
+  try { await Promise.race([carga, corte]); } catch (e) { camOk = false; }
+  if (!camOk && sigue()) { msg('No pude abrir la cámara: pedíselo al celu o con la clave'); await _raEsp(1500); }
+  const t0 = Date.now();
+  if (camOk && sigue()) msg('Mirá a la cámara…');
+  while (camOk && sigue() && Date.now() - t0 < 10000) {
+    let d = null; try { d = await _raLeer(video); } catch (e) {}
+    if (!sigue()) break;
+    if (d) {
+      let r = null, err = null;
+      try { const res = await sb.rpc('tesoreria_recibo_aut_cara', { p_recibo: A.recibo, p_descriptor: Array.from(d) }); r = res.data; err = res.error; } catch (e) { err = e; }
+      if (RA !== A || A.fin) break;
+      if (r && r.ok) { msg('✔ Autoriza ' + _raPila(r.autorizadora), true); await _raEsp(700); toast('Lo autorizó ' + _raPila(r.autorizadora) + ' con la cara'); _raFin(r.id); return true; }
+      if (!sigue()) break;
+      if (err) { msg(err.message || 'No se pudo autorizar'); await _raEsp(2000); break; }
+      if (r && r.motivo === 'sin_rango') { msg(_raPila(r.nombre) + ': el recibo lo autoriza la encargada o la cajera'); await _raEsp(1800); break; }
+      msg('No te reconozco: acercate a la cámara');
+    }
+    await _raEsp(250);
+  }
+  _raCamOff();
+  return RA !== A || A.fin;
+}
+
+// 2) y 3) La ventana: a quién pedirle (aviso al celu) o usuario y clave
+function _raVentana() {
+  const A = RA; if (!A || A.fin) return;
+  _raModal(`<h3>🔐 Este recibo necesita autorización</h3>
+    <div class="ra-sub">${escHtml(A.resumen)}</div>
+    <div class="ra-lista" id="ra-lista"><span class="ra-spin"></span>Buscando quién puede autorizar…</div>
+    <div class="ra-sub" style="margin:12px 0 0;">¿No tiene el celu a mano? Que lo autorice acá con su usuario y clave:</div>
+    <div class="ra-clave"><input id="ra-mail" type="text" inputmode="email" placeholder="Usuario (mail)" autocomplete="off" autocapitalize="off" spellcheck="false"><input id="ra-pass" type="password" placeholder="Clave" autocomplete="new-password" onkeydown="if(event.key==='Enter'){event.preventDefault();_raClave()}"></div>
+    <div class="ra-botones"><button class="btn-secondary" onclick="_raCancelar()">Cancelar</button><button class="btn-primary" style="width:auto;padding:9px 20px;" id="ra-btn-clave" onclick="_raClave()">Autorizar con clave</button></div>`);
+  sb.rpc('pos_presentes', { p_local: A.local }).then(({ data, error }) => {
+    if (RA !== A || A.fin) return;
+    if (error) toast('No pude ver quién está en el local: ' + error.message, true);
+    A.lista = data || []; _raLista();
+  });
+}
+function _raPersona(p) {
+  const rango = p.rol === 'gerente' ? 'encargada' : p.rol === 'cajero' ? 'cajera' : p.rol;
+  const donde = p.fuente === 'reloj' ? 'fichó ' + p.hora : p.fuente === 'turno' ? 'turno desde ' + p.hora : p.rol === 'admin' ? 'fuera del local' : 'no está';
+  return `<div class="ra-p"><span class="nom"><b>${escHtml(_raPila(p.nombre))}</b><span class="ra-chip">${escHtml(rango)}</span>
+      <div style="font-size:11px;color:var(--muted);">${escHtml(donde)}${p.push ? '' : ' · sin avisos en el celu'}</div></span>
+    <button class="btn-primary" style="width:auto;padding:6px 14px;font-size:12px;" ${p.push ? '' : 'disabled title="No tiene las notificaciones activadas en el celu"'} onclick="_raPedir(${Number(p.empleado_id)})">📱 Pedir a ${escHtml(_raPila(p.nombre).split(' ')[0])}</button></div>`;
+}
+function _raLista(aviso) {
+  const A = RA, box = document.getElementById('ra-lista'); if (!A || !box) return;
+  const pres = A.lista.filter(p => p.presente), fuera = A.lista.filter(p => !p.presente);
+  box.className = 'ra-lista' + (pres.length ? '' : ' sin');
+  box.innerHTML = (aviso ? `<div style="color:#dc2626;font-size:12px;margin-bottom:6px;">${escHtml(aviso)}</div>` : '')
+    + (pres.length ? `<b>Están en el local ahora</b>${pres.map(_raPersona).join('')}`
+                   : `<b>No hay encargada ni cajera en el local ahora</b><div style="font-size:11px;color:var(--muted);">Según el reloj, hoy nadie con rango fichó entrada ni tiene turno a esta hora.</div>`)
+    + (fuera.length ? `<b style="display:block;margin-top:10px;">No están en el local (pueden autorizar desde el celu)</b>${fuera.map(_raPersona).join('')}` : '');
+}
+async function _raPedir(empId) {
+  const A = RA; if (!A || A.fin) return;
+  const p = A.lista.find(x => x.empleado_id === empId); if (!p) return;
+  const { data, error } = await sb.rpc('tesoreria_recibo_aut_pedir', { p_recibo: A.recibo, p_empleado_id: empId });
+  if (error) { toast(error.message, true); return; }
+  if (RA !== A || A.fin) { _raCancelarPedido(data.id); return; }
+  const miId = data.id; A.id = miId; A.desde = Date.now();
+  const pinta = () => {
+    const b = document.getElementById('ra-lista'); if (!b) return; b.className = 'ra-lista';
+    const s = Math.round((Date.now() - A.desde) / 1000);
+    b.innerHTML = `<b>Le avisamos a ${escHtml(_raPila(p.nombre))} al celu</b><div style="font-size:12px;color:var(--muted);margin-top:4px;"><span class="ra-spin"></span>Esperando que acepte… ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}</div><div style="font-size:12px;margin-top:6px;"><a href="#" onclick="_raOtra();return false">Pedirle a otra persona</a></div>`;
+  };
+  pinta();
+  clearInterval(A.poll);
+  A.poll = setInterval(async () => {
+    if (RA !== A || A.fin || A.id !== miId) return;
+    pinta();
+    if (Date.now() - A.desde > 180000) { clearInterval(A.poll); _raCancelarPedido(miId); A.id = null; _raLista('Nadie respondió en 3 minutos. Probá de nuevo o usá la clave.'); return; }
+    const { data: r } = await sb.from('pos_autorizaciones').select('estado,autorizadora_nombre').eq('id', miId).maybeSingle();
+    if (!r || RA !== A || A.fin || A.id !== miId) return;
+    if (r.estado === 'aceptada') { toast('Lo autorizó ' + _raPila(r.autorizadora_nombre) + ' desde el celu'); _raFin(miId); }
+    else if (r.estado === 'rechazada') { clearInterval(A.poll); A.id = null; _raLista(_raPila(r.autorizadora_nombre) + ' rechazó el pedido.'); }
+    else if (r.estado === 'cancelada') { clearInterval(A.poll); A.id = null; _raLista('El pedido venció o se canceló. Probá de nuevo.'); }
+  }, 2000);
+}
+function _raOtra() { const A = RA; if (!A) return; clearInterval(A.poll); _raCancelarPedido(A.id); A.id = null; _raLista(); }
+// Usuario y clave: quien autoriza entra en un cliente aparte (sin guardar sesión) y crea la autorización ya aceptada
+async function _raClave() {
+  const A = RA; if (!A || A.fin) return;
+  const mail = (document.getElementById('ra-mail')?.value || '').trim(), pass = document.getElementById('ra-pass')?.value || '';
+  if (!mail || !pass) { toast('Cargá el usuario y la clave de quien autoriza', true); return; }
+  if (mail.toLowerCase() === String(session.email || '').toLowerCase()) { toast('Tiene que ser el usuario de la encargada o la cajera, no el del local', true); return; }
+  const btn = document.getElementById('ra-btn-clave'); if (btn) { btn.disabled = true; btn.textContent = 'Verificando…'; }
+  const sb2 = window.supabase.createClient(SUPA_URL, SUPA_KEY, { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false, storageKey: 'tesoreria-autoriza' } });
+  try {
+    const { error } = await sb2.auth.signInWithPassword({ email: mail, password: pass });
+    if (error) { toast('Usuario o clave incorrectos', true); const p = document.getElementById('ra-pass'); if (p) p.value = ''; return; }
+    if (window.ADORNO_MFA && ADORNO_MFA.pedirCodigo && !(await ADORNO_MFA.pedirCodigo(sb2))) return;   // cuenta con código del celu
+    if (RA !== A || A.fin) return;
+    const { data, error: e2 } = await sb2.rpc('tesoreria_recibo_aut_clave', { p_local: A.local, p_recibo: A.recibo, p_pedido_por_email: session.email });
+    if (e2) { toast(e2.message, true); return; }
+    _raCancelarPedido(A.id);
+    toast('Lo autorizó ' + _raPila(data.autorizadora) + ' con su clave');
+    _raFin(data.id);
+  } finally {
+    try { await sb2.auth.signOut({ scope: 'local' }); } catch (e) {}
+    if (btn && btn.isConnected) { btn.disabled = false; btn.textContent = 'Autorizar con clave'; }
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -1476,6 +1691,16 @@ async function generarPDFEgreso(movId) {
   doc.setTextColor(120, 120, 120);
   doc.text('Firma autorizante', margen + 37, y + 18, { align: 'center' });
   doc.text('Firma receptora del dinero', W - margen - 37, y + 18, { align: 'center' });
+  // (11-nov) recibo emitido desde la cuenta del local: quién lo autorizó en el sistema y cómo
+  const autRec = m.extra && m.extra.autorizacion;
+  if (autRec && autRec.por) {
+    const cuando = autRec.at ? new Date(autRec.at).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }) : '';
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(120, 120, 120);
+    doc.text('Autorizó en el sistema: ' + _raNombre(autRec.por), margen + 37, y + 24, { align: 'center' });
+    doc.text((_RA_MODO_PDF[autRec.modo] || '') + (cuando ? ' · ' + cuando.replace(',', '') : ''), margen + 37, y + 28, { align: 'center' });
+  }
 
   // QR con token único — el sync IMAP lee este token del PDF firmado
   // y matchea con tesoreria_movimientos.qr_token para marcar firmado_at
@@ -1526,6 +1751,7 @@ async function generarPDFEgreso(movId) {
     const { error: eMarca } = await sb.rpc('tesoreria_marcar_pdf_descargado', { p_mov_id: movId });
     if (eMarca) console.warn('No se pudo marcar la descarga:', eMarca.message);
     if (currentTab === 'firma') renderPendientesFirma(); else if (currentTab === 'movimientos') renderMovimientos();
+    else if (currentTab === 'cargar' && session.soloComprobantes) renderMisComprobantes();
   }
   toast('✓ PDF descargado · firmalo y mandalo por mail');
 }
@@ -2624,10 +2850,13 @@ async function renderCargarComprobante() {
     if (caja) session.miCaja = caja;
   }
   if (!caja) { cont.innerHTML = '<div class="empty">No encuentro la caja de tu local. Avisale a JP.</div>'; return; }
+  const conRecibo = !!session.esGenerico;   // (11-nov) la cuenta del local también hace recibos, con autorización
   cont.innerHTML = `
     <div class="card" style="max-width:680px;margin:0 auto;">
-      <h3 class="card-title" style="margin:0 0 6px;">🧺 Subir comprobante · ${escHtml(caja.nombre)}</h3>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">Pagaste algo con plata de la caja: cargá el importe y sacale foto a la factura/ticket, o al comprobante si fue un depósito bancario. Se descuenta de la caja y va a administración.</div>
+      <h3 class="card-title" style="margin:0 0 6px;">${conRecibo ? '🧾 Comprobantes' : '🧺 Subir comprobante'} · ${escHtml(caja.nombre)}</h3>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">${conRecibo
+        ? 'Salió plata de la caja: elegí el comprobante. 🧾 Recibo firmado: sale un PDF para firmar y lo tiene que autorizar la encargada o la cajera. 🧺 Factura / ticket o 🏦 depósito: sacale foto. Se descuenta de la caja y va a administración.'
+        : 'Pagaste algo con plata de la caja: cargá el importe y sacale foto a la factura/ticket, o al comprobante si fue un depósito bancario. Se descuenta de la caja y va a administración.'}</div>
       <div id="form-fields">
         <div class="form-grid compacta">
           <div class="form-row"><label>Fecha</label><input type="date" id="f-fecha" value="${hoyISO()}"></div>
@@ -2641,11 +2870,15 @@ async function renderCargarComprobante() {
           </div>
           <div class="form-row full" id="row-respaldo">
             <label>Tipo de comprobante</label>
-            <div style="display:flex;gap:8px;">
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              ${conRecibo ? `<button type="button" id="resp-recibo" class="btn-secondary" style="flex:1;" onclick="setRespaldo('recibo')" title="Lo autoriza la encargada o la cajera">🧾 Recibo firmado</button>` : ''}
               <button type="button" id="resp-factura" class="btn-secondary" style="flex:1;" onclick="setRespaldo('factura')">🧺 Factura / ticket</button>
               <button type="button" id="resp-deposito" class="btn-secondary" style="flex:1;" onclick="setRespaldo('deposito')">🏦 Depósito bancario</button>
             </div>
           </div>
+          ${conRecibo ? `<div class="form-row full" id="row-aut-aviso" style="display:none;background:#fef3c7;padding:10px 14px;border-radius:18px;font-size:12px;color:#92400e;line-height:1.5;">
+            🔐 <b>El recibo lo autoriza la encargada o la cajera del local.</b> Al tocar <b>Emitir recibo</b>: primero que mire a la cámara; si no está en el local, le llega un aviso al celu para aceptar; y si no, puede poner acá su usuario y clave. Después se baja el PDF para firmar.
+          </div>` : ''}
           <div class="form-row full" id="row-factura">
             <label id="lbl-adjunto">Foto o PDF de la factura</label>
             <input type="file" id="f-factura" accept="image/*,application/pdf" capture="environment"
@@ -2673,8 +2906,8 @@ async function renderMisComprobantes() {
   const box = document.getElementById('mis-comprobantes');
   if (!box) return;
   const { data: movs, error } = await sb.from('tesoreria_movimientos')
-    .select('id,fecha,importe,descripcion,respaldo_tipo,factura_path,archivo_carpeta,respaldo_rechazado_at,respaldo_rechazo_motivo,categoria_id,cuenta_id,origen,firmado_at,codigo_seguimiento')
-    .in('respaldo_tipo', ['factura', 'deposito'])
+    .select('id,fecha,importe,descripcion,respaldo_tipo,factura_path,archivo_carpeta,respaldo_rechazado_at,respaldo_rechazo_motivo,categoria_id,cuenta_id,origen,firmado_at,codigo_seguimiento,pdf_descargado_at,firma_rechazada_at,firma_rechazo_motivo,extra')
+    .in('respaldo_tipo', session.esGenerico ? ['factura', 'deposito', 'recibo'] : ['factura', 'deposito'])   // (11-nov) + recibos de la cuenta del local
     .ilike('cargado_por', session.email || '')
     .order('fecha', { ascending: false }).order('id', { ascending: false }).limit(20);
   if (error) { box.innerHTML = `<div class="empty">Error: ${escHtml(error.message)}</div>`; return; }
@@ -2686,13 +2919,19 @@ async function renderMisComprobantes() {
       <thead><tr><th>Fecha</th><th>Detalle</th><th class="right">Importe</th><th>Estado</th></tr></thead>
       <tbody>${_movsCache.map(m => {
         const rech = m.respaldo_rechazado_at && !m.factura_path;
-        const estado = rech
+        const btnPdfRec = `<button class="btn-secondary" style="font-size:11px;padding:3px 10px;margin-top:4px;" onclick="generarPDFEgreso(${m.id})">📄 PDF</button>`;
+        const estado = m.respaldo_tipo === 'recibo'
+          ? (m.firmado_at ? '<span style="color:#065f46;">✔ Firmado</span>'
+             : m.firma_rechazada_at ? `<span style="color:#dc2626;font-weight:600;">↩ Firma rechazada</span><div style="font-size:11px;color:#991b1b;">${escHtml(m.firma_rechazo_motivo || '')}</div>${btnPdfRec}`
+             : m.pdf_descargado_at ? `<span style="color:#92400e;">✍ Falta que vuelva firmado</span><div>${btnPdfRec}</div>`
+             : `<span style="color:#92400e;font-weight:600;">📄 Falta bajar el PDF</span><div>${btnPdfRec}</div>`)
+          : rech
           ? `<span style="color:#dc2626;font-weight:600;">↩ Rechazado</span><div style="font-size:11px;color:#991b1b;">${escHtml(m.respaldo_rechazo_motivo || '')}</div><button class="btn-secondary" style="font-size:11px;padding:3px 8px;margin-top:4px;" onclick="abrirEditarMov(${m.id})">📎 Volver a subir</button>`
           : m.archivo_carpeta ? `<span style="color:#065f46;">📁 ${escHtml(m.archivo_carpeta.split('/').pop())}</span>`
           : m.factura_path ? '<span style="color:var(--muted);">⏳ Enviando…</span>' : '—';
         return `<tr>
           <td style="white-space:nowrap;">${fmtFecha(m.fecha)}</td>
-          <td>${m.respaldo_tipo === 'deposito' ? '🏦' : '🧺'} ${escHtml(m.descripcion || '')}<div style="font-size:11px;color:var(--muted);">${escHtml(m.codigo_seguimiento || '')}</div></td>
+          <td>${m.respaldo_tipo === 'deposito' ? '🏦' : m.respaldo_tipo === 'recibo' ? '🧾' : '🧺'} ${escHtml(m.descripcion || '')}<div style="font-size:11px;color:var(--muted);">${escHtml(m.codigo_seguimiento || '')}${m.extra?.autorizacion ? ' · autorizó ' + escHtml(_raPila(m.extra.autorizacion.por)) + ' ' + escHtml(_RA_MODO[m.extra.autorizacion.modo] || '') : ''}</div></td>
           <td class="right" style="white-space:nowrap;color:var(--danger);font-weight:600;">${fmt$(m.importe)}</td>
           <td>${estado}</td>
         </tr>`; }).join('')}
@@ -2715,8 +2954,17 @@ function setRespaldo(r) {
   // 4 respaldos posibles: recibo firmado (circuito de siempre, PDF con QR),
   // factura/ticket y depósito (van al OneDrive), y "ninguno" (solo Oficina).
   if (r === 'ninguno' && !session.esOficina) r = 'recibo';
-  if (session.soloComprobantes && r !== 'deposito') r = 'factura';   // vendedoras/genéricos: sin recibo
+  // vendedoras: sin recibo · (11-nov) la cuenta genérica del local sí, con autorización de la encargada o la cajera
+  if (session.soloComprobantes && r !== 'deposito' && !(r === 'recibo' && session.esGenerico)) r = 'factura';
   _respaldoCarga = r;
+  const avisoAut = document.getElementById('row-aut-aviso');
+  if (avisoAut) avisoAut.style.display = r === 'recibo' ? '' : 'none';
+  // la librería de caras pesa (~7 MB la 1ª vez): se empieza a bajar apenas eligen recibo, para que la cámara abra rápido
+  if (r === 'recibo' && session.esGenerico && navigator.mediaDevices && typeof _raLib === 'function') _raLib().catch(() => {});
+  if (session.soloComprobantes) {
+    const bg = document.getElementById('btn-guardar');
+    if (bg && !bg.disabled) bg.textContent = r === 'recibo' ? '🔐 Emitir recibo' : '💾 Guardar';
+  }
   [['resp-recibo','recibo'],['resp-factura','factura'],['resp-deposito','deposito'],['resp-ninguno','ninguno']].forEach(([id,val]) => {
     const b = document.getElementById(id);
     if (b) b.style.cssText = 'flex:1;' + (r === val ? 'background:var(--primary);color:white;border-color:var(--primary);' : '');
@@ -3079,6 +3327,19 @@ async function guardarMovimiento() {
         if (_respaldoCarga !== 'recibo') throw new Error('El pago a ' + _catEventual(categoriaId).nombre.replace(/^Pago /,'') + ' lleva recibo firmado');
         data.extra = { eventual: _eventualLeer() };
       }
+      // (11-nov, JP) Recibo desde la cuenta genérica del local: lo autoriza la encargada o la cajera
+      // (cara → aviso al celu → usuario y clave) y la base lo graba con lo que se autorizó.
+      if (_tipoCarga === 'egreso' && _respaldoCarga === 'recibo' && session.esGenerico) {
+        btn.textContent = 'Esperando autorización…';
+        const autId = await autorizarRecibo({ fecha, cuenta_id: cuentaId, categoria_id: categoriaId, importe: importeAbs, descripcion: desc });
+        if (!autId) { btn.disabled = false; btn.textContent = '🔐 Emitir recibo'; return; }
+        btn.textContent = 'Emitiendo…';
+        const { data: em, error: eEm } = await sb.rpc('tesoreria_recibo_emitir', { p_autorizacion_id: autId });
+        if (eEm) throw new Error(eEm.message || 'No se pudo emitir el recibo');
+        toast('✓ Recibo emitido · lo autorizó ' + _raPila(em.autorizo));
+        abrirModalPostCarga(em.id);
+        return;
+      }
       // Respaldo por FACTURA adjunta (jul 2026): sube la foto/PDF al bucket,
       // no requiere firma, y el VPS se la manda por mail a administración
       // (claudiaadorno@claudiaadorno.com) para el circuito contable.
@@ -3127,7 +3388,7 @@ async function guardarMovimiento() {
     cargar();
   } catch (e) {
     toast('Error: ' + e.message, true);
-    btn.disabled = false; btn.textContent = '💾 Guardar';
+    btn.disabled = false; btn.textContent = (session.esGenerico && _respaldoCarga === 'recibo') ? '🔐 Emitir recibo' : '💾 Guardar';
   }
 }
 
@@ -4623,7 +4884,7 @@ if ('serviceWorker' in navigator) {
   }, true);
 })();
 </script>
-<script src="manual.js?v=39"></script>
+<script src="manual.js?v=40"></script>
 <script>
 // (24-ago) Blindaje iOS: re-suscripcion automatica de push. iOS suelta la
 // suscripcion silenciosamente cada tanto; si el permiso sigue concedido y
