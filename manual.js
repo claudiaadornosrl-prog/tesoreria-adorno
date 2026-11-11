@@ -28,6 +28,16 @@ function _manualSecciones() {
       ],
     },
     {
+      icon: '🧭', titulo: 'La barra de arriba',
+      desc: 'Es igual en todos los módulos: mismo lugar para cada cosa y el color de la moneda del módulo (el mismo del Hub).',
+      pasos: [
+        'A la izquierda, la moneda y el nombre del módulo. En la computadora, tocando el nombre (Tesorería ▾) se abre la lista para pasar a otro módulo sin volver al Hub.',
+        'Al lado van los apartados (Saldos, Movimientos, Recibos, Pendientes, Transferencias…): son íconos; al pasar el mouse aparece el nombre, y el apartado en el que estás queda marcado en blanco con su nombre.',
+        'A la derecha, siempre en el mismo orden: 📖 Manual, 🔔 Notificaciones, 🔄 Actualizar y, después de la rayita, 🏠 Hub (volver al Hub) y Salir.',
+        'En el celular: los apartados, el Manual, las Notificaciones y Actualizar están adentro del botón ☰; a la vista quedan 🏠 Hub y Salir.',
+      ],
+    },
+    {
       icon: '💰', titulo: 'Saldos',
       desc: oficina
         ? 'Saldos de todas las cuentas: cajas de los locales, bancos e inversiones.'
