@@ -12,8 +12,9 @@ function _manualSecciones() {
   const s = (typeof session !== 'undefined' && session) || {};
   const admin = !!s.verTodo;
   const oficina = !!s.esOficina;
-  const puedeCargar = !(s.rol === 'gerente' && !s.empleado_id) &&
-                      !(s.rol === 'empleado' && !s.esCajera);
+  // (12-nov) Oficina siempre carga (Marisa/Analía son rol empleado y quedaban afuera de esta sección)
+  const puedeCargar = oficina || (!(s.rol === 'gerente' && !s.empleado_id) &&
+                      !(s.rol === 'empleado' && !s.esCajera));
 
   const items = [
     {
@@ -41,6 +42,7 @@ function _manualSecciones() {
         'La ⭐ marca tu caja predeterminada: al abrir la app va directo a esa (se guarda en tu dispositivo).',
         'Tocá una cuenta para ver sus movimientos.',
         ...(oficina ? [
+          '🏢 CUENTAS DE LA OFICINA: administracion@ (la compu de Marisa) y claudiaadorno@ (la de Analía) ven y cargan lo mismo que Marisa y Analía con su usuario personal: todas las cuentas menos PPI (inversiones de PPI las ve solo el admin), con las tenencias de las inversiones. Arriba, al lado de Tesorería, dice "Oficina". La 🔔 Notificaciones también se activa en esas compus: avisa cuando administración rechaza o pide corregir algo de la Caja Oficina.',
           'Las cards "Inversiones Pesos / Dólares" agrupan FIMA, Títulos y Plazo Fijo — tocá la flecha ▸ para el detalle.',
           'El saldo "real" lo informa el banco/MP con los bots; si un número parece viejo, mirá la fecha chiquita de actualización.',
         ] : []),
@@ -70,14 +72,15 @@ function _manualSecciones() {
         '🔐 RECIBOS DESDE LA CUENTA DEL LOCAL (alcorta@ / unicenter@): en Comprobantes también aparece "🧾 Recibo firmado". Se completa fecha, importe, categoría y descripción y se toca "🔐 Emitir recibo": lo tiene que autorizar la encargada o la cajera de ese local (o un admin). 1) Primero se abre la cámara de la PC: si la encargada o la cajera mira a la cámara y la reconoce (la cara registrada en el POS), queda autorizado con su nombre. 2) Si no está o no la reconoce: "📱 Pedir al celu o con clave" muestra quiénes están en el local y quiénes no; "Pedir a…" le manda un aviso al celu con Aceptar / Rechazar (se espera hasta 3 minutos; "Pedirle a otra persona" cambia). 3) Si no tiene el celu: pone acá su usuario y clave (si su cuenta pide el código del celu, lo pide). Después se baja el PDF, se firma y se manda por mail como siempre.',
         'Lo que se autoriza es ESE recibo: el importe, la caja y la descripción quedan fijos en la autorización y la base graba exactamente eso. La autorización vale 10 minutos y sirve para un solo recibo. En "📋 Mis comprobantes" se ve el recibo con quién lo autorizó y cómo (con la cara, desde el celu o con su clave), su estado (falta bajar el PDF, falta que vuelva firmado, firmado) y el botón 📄 PDF para volver a bajarlo. El PDF dice abajo de "Firma autorizante" quién lo autorizó en el sistema. Las vendedoras con su usuario personal siguen sin recibos.',
         'El respaldo elegido manda para todos los usuarios: si admin u Oficina cargan un egreso de una caja con "Recibo firmado", también sale el PDF con QR para imprimir y firmar. Oficina tiene además "∅ Sin respaldo" (default en cuentas de banco/MP; en cajas el default es recibo).',
-        'La factura se envía sola a Anita para contabilizarla; el comprobante de depósito va a Marisa, que concilia los depósitos. Vos no tenés que mandar nada por mail.',
+        ...(oficina ? ['🏢 OFICINA (Marisa, Analía y las cuentas de la oficina administracion@ / claudiaadorno@) carga ⬆ ingresos, ⬇ egresos y 🔄 transferencias en cualquier cuenta menos PPI, y emite 🧾 recibos firmados directo, sin pedir autorización. Todo queda a nombre del usuario con el que se cargó. La transferencia entre cuentas graba las dos puntas juntas (sale de una y entra en la otra): si algo falla no queda ninguna a medias.'] : []),
         'Las facturas y los comprobantes de depósito se guardan solos en el OneDrive (cada hora): la factura entra a CONTABILIZAR / 1 - SIN CONTABILIZAR y el depósito al archivero del mes. No hace falta mandar nada por mail.',
         'Si administración rechaza el archivo (foto equivocada, ilegible) te llega un aviso y el movimiento muestra "↩ Volver a subir": tocá ✏️, adjuntá el archivo correcto y listo.',
         '👤 Pago a Nora (cubre días en Alcorta o Unicenter): egreso de tu caja con la categoría "Pago Nora" y recibo firmado. Aparece el recuadro 📅 "Días que cubre este pago": cargá desde / hasta (inclusive) y cuántos días trabajó. Esos días deciden el MES de la liquidación de sueldos (no la fecha en que le pagaste) y tu caja decide el LOCAL. Si una semana cruza de mes, el sistema la reparte sola entre los dos meses.',
         'Si te equivocaste en los días, tocá ✏️ en el movimiento y corregilos: se puede aunque el recibo ya esté firmado.',
       ],
     });
-    items.push({
+    // (12-nov) Oficina no tiene esa pestaña (los recibos se controlan desde el módulo Documentos)
+    if (!oficina) items.push({
       icon: '✍️', titulo: 'Pendientes de firma',
       desc: 'Egresos cargados con recibo que todavía no tienen el recibo firmado escaneado.',
       pasos: [

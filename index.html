@@ -1038,6 +1038,10 @@ async function initSession() {
     session.soloComprobantes = true;
     session.esGenerico = true;
   }
+  // (12-nov, JP) Cuentas de la oficina (administracion@ en la PC de Marisa, claudiaadorno@ en la de Analía):
+  // rol directora SIN legajo. Tienen lo mismo que Marisa y Analía con sus usuarios personales (todo menos PPI).
+  // En la base: tesoreria_es_cuenta_oficina() / tesoreria_es_oficina() (sql/10).
+  if (u.rol === 'directora' && !u.empleado_id) session.esCuentaOficina = true;
   enterApp();
   return true;
 }
@@ -1045,9 +1049,16 @@ async function initSession() {
 function enterApp() {
   document.getElementById('login-screen').classList.remove('active');
   document.getElementById('app-screen').classList.add('active');
+  // "Oficina" = admin, gerente de oficina, Marisa/Analía (mismo par de emails que
+  // tesoreria_es_admin_oficina() en la DB — mantener sincronizado) y las cuentas de la oficina.
+  // (12-nov) se calcula antes de la cabecera: Marisa/Analía y las cuentas de oficina decían "· Encargada ·" vacío
+  const ADMIN_OFICINA_EMAILS = ['marisaisabel07@yahoo.com.ar', 'rivera.analia.leon@gmail.com', 'administracion@claudiaadorno.com', 'claudiaadorno@claudiaadorno.com'];
+  session.esOficina = session.verTodo || !!session.esCuentaOficina ||
+    ADMIN_OFICINA_EMAILS.includes((session.email || '').toLowerCase());
   document.getElementById('hdr-sub').textContent = '· ' + (
     session.rol === 'admin' ? 'Admin' :  // (13-oct, JP) sin el mail: empujaba los íconos del header
     session.localGerencia === 'oficina' ? 'Oficina (admin)' :
+    session.esOficina ? 'Oficina' :
     session.esCajera ? 'Cajera · ' + (session.localGerencia || '') :
     (session.soloComprobantes && session.miCaja) ? 'Comprobantes · ' + (session.localGerencia || '') :
     session.esGenerico ? 'Local · ' + (session.localGerencia || '') :   // (11-nov) la cuenta del local no es una encargada
@@ -1056,12 +1067,7 @@ function enterApp() {
   // (9-sep) la pestaña de carga se llama según lo que puede hacer el usuario
   // (13-oct, JP) la pestaña se llama Comprobantes para todos
   { const b = document.getElementById('tab-cargar'); b.querySelector('.lb').textContent = 'Comprobantes'; b.title = 'Comprobantes'; }
-  // ── Visibilidad de tabs por rol ──
-  // "Oficina" = admin, gerente de oficina, o Marisa/Analía (mismo par de
-  // emails que tesoreria_es_admin_oficina() en la DB — mantener sincronizado).
-  const ADMIN_OFICINA_EMAILS = ['marisaisabel07@yahoo.com.ar', 'rivera.analia.leon@gmail.com', 'administracion@claudiaadorno.com', 'claudiaadorno@claudiaadorno.com'];
-  session.esOficina = session.verTodo ||
-    ADMIN_OFICINA_EMAILS.includes((session.email || '').toLowerCase());
+  // ── Visibilidad de tabs por rol ── (session.esOficina se calcula arriba, antes de la cabecera)
   if (session.esOficina) {
     // Oficina ve Pendientes y Bots (display explícito, a prueba de caches viejas)
     document.getElementById('tab-pendientes').style.display = '';
@@ -3305,17 +3311,12 @@ async function guardarMovimiento() {
       const cuentaDestino = parseInt(document.getElementById('f-cuenta-destino').value);
       if (!cuentaDestino) throw new Error('Falta cuenta destino');
       if (cuentaDestino === cuentaId) throw new Error('Origen y destino tienen que ser distintos');
-      // Insertamos los 2 movimientos, después los linkeamos
-      const meta = { fecha, categoria_id: categoriaId, descripcion: desc, origen: 'transferencia', cargado_por: session.email };
-      const { data: ins1, error: e1 } = await sb.from('tesoreria_movimientos')
-        .insert({ ...meta, cuenta_id: cuentaId, importe: -importeAbs })
-        .select().single();
-      if (e1) throw e1;
-      const { data: ins2, error: e2 } = await sb.from('tesoreria_movimientos')
-        .insert({ ...meta, cuenta_id: cuentaDestino, importe: importeAbs, transferencia_id: ins1.id })
-        .select().single();
-      if (e2) throw e2;
-      await sb.from('tesoreria_movimientos').update({ transferencia_id: ins2.id }).eq('id', ins1.id);
+      // (12-nov) Los 2 movimientos y el enlace los graba la base de una sola vez (antes eran 2 insert
+      // + 1 update: para Oficina el update del enlace lo frenaba la base y quedaba a medias)
+      const { error: eTr } = await sb.rpc('tesoreria_transferencia_cargar', {
+        p_fecha: fecha, p_origen: cuentaId, p_destino: cuentaDestino, p_importe: importeAbs,
+        p_categoria_id: categoriaId, p_descripcion: desc });
+      if (eTr) throw eTr;
     } else {
       const signo = _tipoCarga === 'ingreso' ? 1 : -1;
       const data = {
@@ -3564,8 +3565,10 @@ const pushManager = (() => {
     try {
       const { data } = await sb.rpc('rrhh_current_user');
       const u = Array.isArray(data) ? data[0] : data;
-      return { empleado_id: u?.empleado_id || null, local_gerencia: u?.local_gerencia || null };
-    } catch (_) { return { empleado_id: null, local_gerencia: null }; }
+      return { empleado_id: u?.empleado_id || null, local_gerencia: u?.local_gerencia || null,
+               // (12-nov) cuenta de la oficina: rol directora sin legajo ni local → se guarda por RPC (tesoreria_push_oficina)
+               oficina: !u?.empleado_id && !u?.local_gerencia && u?.rol === 'directora' };
+    } catch (_) { return { empleado_id: null, local_gerencia: null, oficina: false }; }
   }
   async function activar() {
     if (!soportado()) throw new Error('Este navegador no soporta notificaciones.');
@@ -3592,6 +3595,13 @@ const pushManager = (() => {
     };
     if (cu.empleado_id) payload.empleado_id = cu.empleado_id;
     else if (cu.local_gerencia) payload.local_generico = cu.local_gerencia;
+    else if (cu.oficina) {
+      // la RLS de rrhh_push_subscriptions compara con local_gerencia (vacío en la cuenta de oficina): va por la base
+      const { error: eOf } = await sb.rpc('tesoreria_push_oficina', { p_accion: 'guardar', p_endpoint: raw.endpoint,
+        p_p256dh: raw.keys.p256dh, p_auth: raw.keys.auth, p_user_agent: payload.user_agent });
+      if (eOf) throw eOf;
+      return 'activo';
+    }
     else throw new Error('No pude identificar tu usuario para las notificaciones.');
     const { error } = await sb.from('rrhh_push_subscriptions').upsert(payload, { onConflict: 'endpoint,app' });
     if (error) throw error;
@@ -3601,7 +3611,11 @@ const pushManager = (() => {
     const reg = await navigator.serviceWorker.ready;
     const sub = await _getSubFresca(reg);
     if (sub) {
-      try { await sb.from('rrhh_push_subscriptions').delete().eq('endpoint', sub.endpoint); } catch (_) {}
+      const cu = await _identidadPush();
+      try {
+        if (cu.oficina) await sb.rpc('tesoreria_push_oficina', { p_accion: 'borrar', p_endpoint: sub.endpoint });
+        else await sb.from('rrhh_push_subscriptions').delete().eq('endpoint', sub.endpoint);
+      } catch (_) {}
       await sub.unsubscribe();
     }
     return 'inactivo';
@@ -4886,7 +4900,7 @@ if ('serviceWorker' in navigator) {
   }, true);
 })();
 </script>
-<script src="manual.js?v=43"></script>
+<script src="manual.js?v=44"></script>
 <script>
 // (24-ago) Blindaje iOS: re-suscripcion automatica de push. iOS suelta la
 // suscripcion silenciosamente cada tanto; si el permiso sigue concedido y
@@ -4899,13 +4913,20 @@ if ('serviceWorker' in navigator) {
     if (typeof pushManager === 'undefined' || !pushManager.soportado()) return;
     const { data: { session: _s } } = await sb.auth.getSession();
     if (!_s) return;
-    let _emp = null, _gen = null;
+    let _emp = null, _gen = null, _ofi = false;
     try {
       const { data: u } = await sb.rpc('rrhh_current_user');
       const _u = Array.isArray(u) ? u[0] : u;
       _emp = _u?.empleado_id ?? null;
       if (!_emp) _gen = _u?.local_gerencia ?? null;
+      _ofi = !_emp && !_gen && _u?.rol === 'directora';
     } catch (_) {}
+    // (12-nov) cuenta de la oficina: sus filas (local_generico 'oficina') no se leen por RLS → pregunta a la base
+    if (_ofi) {
+      const { data: t } = await sb.rpc('tesoreria_push_oficina', { p_accion: 'tiene' });
+      if (t && t.tiene) await pushManager.activar();
+      return;
+    }
     if (!_emp && !_gen) return;
     let q = sb.from('rrhh_push_subscriptions').select('id')
       .eq('app', 'tesoreria').or('plataforma.is.null,plataforma.neq.hub').limit(1);
