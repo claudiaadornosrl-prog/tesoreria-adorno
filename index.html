@@ -490,6 +490,7 @@ window.ADORNO_SSO = (function () {
 <link rel="stylesheet" href="/hub/banner.css?v=6"><!-- banner común de los módulos (infra, 11-nov-2026) -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/dist/umd/supabase.min.js" integrity="sha384-UagCvVPT5XXA0Hx+nJYUAGBFseHT9zBgpJMSebsAxl9lciTwbT+39j5VfRjdP5Tp" crossorigin="anonymous"></script>
 <script src="/hub/seguridad.js?v=1"></script>
+<script src="/hub/caras.js?v=4" defer></script>
 <!-- jsPDF + QR para generar comprobantes de egreso -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" integrity="sha384-JcnsjUPPylna1s1fvi1u12X5qjY5OL56iySh75FdtrwhO/SWXgMjoVqcKyIIWOLk" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js" integrity="sha384-lQXOAyZwHXE55JFyrOMB7nY2Wv+m5ZWNtJcHrd1rceRQXAYNLak8ukN5TjBTcIwz" crossorigin="anonymous"></script>
@@ -1424,6 +1425,7 @@ async function reclamarTransferencia(id, importe) {
   const nota = prompt(`Transferencia de ${fmt$(importe)}.\n\n¿De qué cliente es / qué se llevó?\n\nQueda registrada a nombre de tu local y DESAPARECE de esta lista para todos (el otro local ya no la ve).`, '');
   if (nota === null) return;
   if (!(await hubExigir(['tes.transferencias']))) return;   // (14-nov) permisos del Hub
+  if (!(await hubRegistrar('tes.transferencias', session.localTrabajo, { accion: 'reclamar', movimiento: id, importe: Number(importe), nota: (nota || '').trim() }))) return;   // 📷 registra quién
   // (14-nov) con varios locales, se reclama para el local en el que está trabajando
   const { data, error } = await sb.rpc('tesoreria_transferencia_reclamar', { p_id: id, p_nota: nota, p_local: (session.locales || []).length > 1 ? session.localTrabajo : null });
   if (error) { alert('No se pudo reclamar: ' + error.message); return; }
@@ -1526,11 +1528,48 @@ function _puedeCorregirMov(m) {
   const c = _cuentaDeMov(m);
   return c ? _cuentaOperable(c) : true;
 }
-async function _hubExigirCorregir(id) {
+// Corregir / anular: el permiso del Hub y, si JP la marcó con 📷, quién lo hace
+async function _hubExigirCorregir(id, accion, extra) {
   let m = (_movsCache || []).find(x => x.id === id);
-  if (!m) { const { data } = await sb.from('tesoreria_movimientos_view').select('id,cuenta_id').eq('id', id).maybeSingle(); m = data; }
+  if (!m) { const { data } = await sb.from('tesoreria_movimientos_view').select('id,cuenta_id,importe,codigo_seguimiento').eq('id', id).maybeSingle(); m = data; }
   const c = _cuentaDeMov(m);
-  return hubExigir(['tes.corregir_anular', ..._hubFuncsCuenta(c)], _hubLocalDe(c), 'corregir o anular');
+  if (!(await hubExigir(['tes.corregir_anular', ..._hubFuncsCuenta(c)], _hubLocalDe(c), 'corregir o anular'))) return false;
+  return !!(await hubRegistrar('tes.corregir_anular', _hubLocalDe(c), Object.assign({ accion: accion || 'corregir', movimiento: id,
+    codigo: m && m.codigo_seguimiento || null, importe: m && m.importe != null ? Number(m.importe) : null, cuenta: c && c.nombre || null }, extra || {})));
+}
+
+// ── 📷 REGISTRA QUIÉN (14-nov-2026, JP vía Hub e Infraestructura) ──────────────────────────────────────────────
+// En el Hub, cada función puede tener «📷 Registra quién: Sí». Si está en Sí, antes de grabar (y después del permiso)
+// /hub/caras.js anota quién lo hace en hub_registros: con usuario personal, esa persona sin preguntar; con la cuenta
+// compartida, la cámara (si las caras están prendidas) o tocando su nombre en la lista. No guarda fotos.
+// Devuelve el resultado (r.id si anotó, r.omitido si la función no está marcada) o null si NO hay que seguir.
+async function hubRegistrar(funcion, local, detalle) {
+  const loc = (local || session.localTrabajo || null);
+  if (window.ADORNO_CARAS && ADORNO_CARAS.registrar) {
+    const r = await ADORNO_CARAS.registrar({ cli: sb, funcion, local: loc, detalle: detalle || null });
+    if (!r || !r.ok) { if (r && r.motivo === 'error') toast('No se pudo anotar quién lo hace: ' + (r.error || 'error'), true); return null; }
+    return r;
+  }
+  // sin /hub/caras.js (no cargó): si la función pide registrar, no se puede seguir
+  const { data, error } = await sb.rpc('hub_registra_quien', { p_funcion: funcion });
+  if (error) { toast('No se pudo anotar quién lo hace: ' + error.message, true); return null; }
+  if (data && data.registra) { toast('Esta función anota quién la hace y no cargó la ventana del Hub: recargá la página.', true); return null; }
+  return { ok: true, omitido: true };
+}
+// Cuando el módulo YA sabe quién es (el recibo del local autorizado en la PC): sin ventana, se anota esa persona
+// (con usuario personal hub_registrar anota al dueño del usuario e ignora el legajo que se le pasa)
+async function _hubRegistrarPersona(funcion, local, empleadoId, detalle) {
+  const { data, error } = await sb.rpc('hub_registra_quien', { p_funcion: funcion });
+  if (error) { toast('No se pudo anotar quién lo hace: ' + error.message, true); return null; }
+  if (!data || !data.registra) return { ok: true, omitido: true };
+  const r = await sb.rpc('hub_registrar', { p_funcion: funcion, p_local: local || session.localTrabajo || null, p_empleado_id: empleadoId, p_detalle: detalle || null });
+  if (r.error || !r.data) { toast('No se pudo anotar quién lo hace: ' + (r.error ? r.error.message : 'sin respuesta'), true); return null; }
+  return { ok: true, id: r.data.id, nombre: r.data.nombre, modo: r.data.modo };
+}
+// Pagos pendientes: permiso del Hub + registra quién (una línea al principio de cada función que graba)
+async function _hubPagos(accion, detalle) {
+  if (!(await hubExigir(['tes.pagos_pendientes']))) return false;
+  return !!(await hubRegistrar('tes.pagos_pendientes', null, Object.assign({ accion }, detalle || {})));
 }
 async function cancelarMovimiento(id, impresoEl) {
   // El motivo NO es decorativo: queda en tesoreria_movimientos_borrados, que es
@@ -1542,7 +1581,7 @@ async function cancelarMovimiento(id, impresoEl) {
   const motivo = prompt('¿Por qué anulás este comprobante?\n\nEl movimiento desaparece y la caja vuelve como estaba.' + aviso + '\n\nMotivo (obligatorio):');
   if (motivo === null) return;
   if (!motivo.trim()) { toast('Hace falta el motivo', true); return; }
-  if (!(await _hubExigirCorregir(id))) return;   // (14-nov) permisos del Hub
+  if (!(await _hubExigirCorregir(id, 'anular', { motivo: motivo.trim() }))) return;   // (14-nov) permisos del Hub + 📷 registra quién
   try {
     const { data, error } = await sb.rpc('tesoreria_cancelar_movimiento', { p_mov_id: id, p_motivo: motivo });
     if (error) throw error;
@@ -2667,7 +2706,7 @@ function _editRespaldoCambio() {
 }
 
 async function guardarEditMov(id) {
-  if (!(await _hubExigirCorregir(id))) return;   // (14-nov) permisos del Hub
+  if (!(await _hubExigirCorregir(id, 'corregir'))) return;   // (14-nov) permisos del Hub + 📷 registra quién
   try {
     const patch = {
       fecha: document.getElementById('em-fecha').value,
@@ -2738,7 +2777,7 @@ async function borrarMov(id) {
   const motivo = prompt('¿Por qué lo anulás? (queda registrado)');
   if (motivo === null) return;
   if (!motivo.trim()) { toast('Hace falta el motivo', true); return; }
-  if (!(await _hubExigirCorregir(id))) return;   // (14-nov) permisos del Hub
+  if (!(await _hubExigirCorregir(id, 'anular', { motivo: motivo.trim() }))) return;   // (14-nov) permisos del Hub + 📷 registra quién
   try {
     // Si era transferencia, avisar que queda la pata contraria
     if (m.transferencia_id && !confirm('Este movimiento es parte de una TRANSFERENCIA: la otra pata NO se borra sola.\n¿Borrar igual?')) return;
@@ -3555,6 +3594,12 @@ async function guardarMovimiento() {
       loc = _hubLocalDe(c1);
     }
     if (!(await hubExigir(funcs, loc, 'cargar este movimiento'))) return;
+    // 📷 registra quién (si JP marcó la función en el Hub): después del permiso, antes de grabar
+    const c2 = _tipoCarga === 'transferencia' ? _cuentaDeMov({ cuenta_id: parseInt(document.getElementById('f-cuenta-destino')?.value) }) : null;
+    const reg = await hubRegistrar(funcs[0], loc || (c1 && c1.tipo === 'caja' ? c1.local : null), _tipoCarga === 'transferencia'
+      ? { importe: importeAbs, desde: c1 && c1.nombre || cuentaId, hacia: c2 && c2.nombre || null, descripcion: desc }
+      : { tipo: _tipoCarga, respaldo: _tipoCarga === 'egreso' ? _respaldoCarga : null, importe: importeAbs, cuenta: c1 && c1.nombre || cuentaId, descripcion: desc });
+    if (!reg) return;
   }
 
   btn.disabled = true; btn.textContent = 'Guardando…';
@@ -3588,6 +3633,14 @@ async function guardarMovimiento() {
         btn.textContent = 'Esperando autorización…';
         const autId = await autorizarRecibo({ fecha, cuenta_id: cuentaId, categoria_id: categoriaId, importe: importeAbs, descripcion: desc });
         if (!autId) { btn.disabled = false; btn.textContent = '🔐 Emitir recibo'; return; }
+        // 📷 registra quién (14-nov, si JP marcó «Hacer un recibo»): si autorizó en esta PC (cara o clave), es esa
+        // persona y no se le pregunta de nuevo; si aceptó desde el celu no está acá, así que se pregunta quién lo hace.
+        const detRec = { importe: importeAbs, cuenta: cuentaId, descripcion: desc, autorizacion: autId };
+        const { data: autR } = await sb.from('pos_autorizaciones').select('autorizadora_empleado_id,modo').eq('id', autId).maybeSingle();
+        const reg = (autR && (autR.modo === 'cara' || autR.modo === 'clave') && autR.autorizadora_empleado_id)
+          ? await _hubRegistrarPersona('tes.recibo', session.localGerencia, autR.autorizadora_empleado_id, detRec)
+          : await hubRegistrar('tes.recibo', session.localGerencia, detRec);
+        if (!reg) { btn.disabled = false; btn.textContent = '🔐 Emitir recibo'; return; }
         btn.textContent = 'Emitiendo…';
         const { data: em, error: eEm } = await sb.rpc('tesoreria_recibo_emitir', { p_autorizacion_id: autId });
         if (eEm) throw new Error(eEm.message || 'No se pudo emitir el recibo');
@@ -3692,6 +3745,7 @@ async function ejecutarScraperAhora(id, nombre) {
   // main.py corriendo en loop en la PC lo detecta en el próximo polling
   // (cada POLL_SECONDS, default 5 min) y lo ejecuta.
   if (!(await hubExigir(['tes.bots']))) return;   // (14-nov) permisos del Hub
+  if (!(await hubRegistrar('tes.bots', null, { accion: 'ejecutar', bot: nombre || id }))) return;   // 📷 registra quién
   try {
     const { data: ok, error } = await sb.rpc('tesoreria_bot_ejecutar', { p_id: id });
     if (error) throw error;
@@ -4283,7 +4337,7 @@ async function confirmarMatchPago(id, movimientoId) {
   } catch (e) { alert('Error: ' + e.message); }
 }
 async function rechazarMatchPago(id) {
-  if (!(await hubExigir(['tes.pagos_pendientes']))) return;   // (14-nov) permisos del Hub
+  if (!(await _hubPagos('rechazarMatchPago', { id }))) return;   // (14-nov) permisos del Hub + 📷 registra quién
   try {
     const { error } = await sb.from('tesoreria_pagos_pendientes')
       .update({ estado: 'pendiente', movimiento_id: null }).eq('id', id);
@@ -4307,7 +4361,7 @@ async function marcarComoPagado(id) {
 // (4-nov-2026, JP para Marisa) Mercadería pagada por adelanto: al llegar se tilda y recién ahí sale de
 // Pendientes (queda quién y cuándo). Con llego=false se deshace (vuelve a esperar la mercadería).
 async function marcarEntregado(id, llego) {
-  if (!(await hubExigir(['tes.pagos_pendientes']))) return;   // (14-nov) permisos del Hub
+  if (!(await _hubPagos('marcarEntregado', { id, llego }))) return;   // (14-nov) permisos del Hub + 📷 registra quién
   const p = _pagosPendientesCache.find(x => x.id === id) || {};
   const msg = llego
     ? `¿Llegó la mercadería?\n\n${p.concepto || '#' + id}\n\n${p.estado === 'pagado' ? 'Sale de Pendientes y queda registrado quién lo marcó.' : 'Queda registrado. El pago sigue pendiente hasta que se pague.'}`
@@ -4326,7 +4380,7 @@ async function marcarEntregado(id, llego) {
 // (25-sep) "CUOTA 3 DE 6" → 3
 function _cuotaNro(c) { const m = /CUOTA\s+(\d+)\s+DE\s+\d+\s*$/i.exec(c || ''); return m ? +m[1] : null; }
 async function cancelarPago(id) {
-  if (!(await hubExigir(['tes.pagos_pendientes']))) return;   // (14-nov) permisos del Hub
+  if (!(await _hubPagos('cancelarPago', { id }))) return;   // (14-nov) permisos del Hub + 📷 registra quién
   const p = _pagosPendientesCache.find(x => x.id === id) || {};
   if (!confirm(p.estado === 'parcial' ? `¿Cancelar lo que falta de este pago?\n\nYa se pagaron ${fmtMoneda(p.importe_pagado, p.moneda)}; las partes abiertas se cancelan y eso queda registrado.` : '¿Cancelar este pago?')) return;
   let ids = [id];
@@ -4346,7 +4400,7 @@ async function cancelarPago(id) {
 }
 function abrirFormNuevoPago(precarga) { abrirFormPago(null, precarga); }
 async function volverAPendiente(id) {
-  if (!(await hubExigir(['tes.pagos_pendientes']))) return;   // (14-nov) permisos del Hub
+  if (!(await _hubPagos('volverAPendiente', { id }))) return;   // (14-nov) permisos del Hub + 📷 registra quién
   const p = _pagosPendientesCache.find(x => x.id === id);
   if (!confirm(`¿Volver a PENDIENTE este pago?\n\n${p ? p.concepto : '#' + id}\n\nSe deshace la marca de pagado y se desengancha del movimiento del banco. Queda registrado quién lo deshizo.`)) return;
   const { error } = await sb.rpc('tesoreria_volver_a_pendiente', { p_id: id });
@@ -4646,7 +4700,7 @@ function _partesNuevoReescalar() {
   _partesFormRender(null, 0, 'ARS');
 }
 async function guardarPartes(id, falta) {
-  if (!(await hubExigir(['tes.pagos_pendientes']))) return;   // (14-nov) permisos del Hub
+  if (!(await _hubPagos('guardarPartes', { id }))) return;   // (14-nov) permisos del Hub + 📷 registra quién
   const partes = _partesEdit.map(r => ({ concepto: (r.concepto || '').trim(), importe: +r.importe || 0, fecha: r.fecha }));
   if (!partes.length) return alert('Agregá al menos una parte.');
   if (partes.some(r => r.importe <= 0)) return alert('Cada parte necesita un importe mayor a cero.');
@@ -4684,7 +4738,7 @@ function registrarParte(parteId, padreId) {
   document.getElementById('fp-importe')?.focus();
 }
 async function guardarRegistroParte(parteId, padreId) {
-  if (!(await hubExigir(['tes.pagos_pendientes']))) return;   // (14-nov) permisos del Hub
+  if (!(await _hubPagos('guardarRegistroParte', { parte: parteId, pago: padreId }))) return;   // (14-nov) permisos del Hub + 📷 registra quién
   const importe = nmParse(document.getElementById('fp-importe').value);
   const fecha = document.getElementById('fp-fecha').value;
   const ultimo = document.getElementById('fp-ultimo').checked;
@@ -4701,7 +4755,7 @@ async function confirmarParte(parteId, movimientoId, padreId) {
   toast('✓ Confirmado'); _reabrirFicha(padreId);
 }
 async function volverParte(parteId, padreId) {
-  if (!(await hubExigir(['tes.pagos_pendientes']))) return;   // (14-nov) permisos del Hub
+  if (!(await _hubPagos('volverParte', { parte: parteId, pago: padreId }))) return;   // (14-nov) permisos del Hub + 📷 registra quién
   if (!confirm('¿Deshacer este pago? La parte vuelve a "a pagar" y el pendiente vuelve a quedar en partes.')) return;
   const { error } = await sb.rpc('tesoreria_volver_a_pendiente', { p_id: parteId });
   if (error) return alert('No se pudo: ' + error.message);
@@ -4819,7 +4873,7 @@ function elegirProveedor(valor) {
 }
 
 async function nuevoProveedorManual() {
-  if (!(await hubExigir(['tes.pagos_pendientes']))) return;   // (14-nov) permisos del Hub
+  if (!(await _hubPagos('nuevoProveedorManual', {}))) return;   // (14-nov) permisos del Hub + 📷 registra quién
   const nombre = prompt('Nombre / razón social del proveedor nuevo:');
   if (!nombre) return;
   const cuit = (prompt('CUIT (opcional, mejora el match automático de pagos):') || '').replace(/\D/g, '');
@@ -4956,7 +5010,7 @@ async function elegirLocalPago(v) {
 }
 
 async function guardarPago(id) {
-  if (!(await hubExigir(['tes.pagos_pendientes']))) return;   // (14-nov) permisos del Hub
+  if (!(await _hubPagos('guardarPago', { id: id || null }))) return;   // (14-nov) permisos del Hub + 📷 registra quién
   const concepto = document.getElementById('f-concepto').value.trim();
   const destinatario = document.getElementById('f-destinatario').value.trim() || null;
   const importe = nmParse(document.getElementById('f-importe').value);
@@ -5162,7 +5216,7 @@ if ('serviceWorker' in navigator) {
   }, true);
 })();
 </script>
-<script src="manual.js?v=45"></script>
+<script src="manual.js?v=46"></script>
 <script>
 // (24-ago) Blindaje iOS: re-suscripcion automatica de push. iOS suelta la
 // suscripcion silenciosamente cada tanto; si el permiso sigue concedido y
