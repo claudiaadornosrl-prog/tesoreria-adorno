@@ -12,11 +12,28 @@ function _manualSecciones() {
   const s = (typeof session !== 'undefined' && session) || {};
   const admin = !!s.verTodo;
   const oficina = !!s.esOficina;
+  // (14-nov) Las secciones salen de los permisos del Hub (lo mismo que decide qué pestañas se ven)
+  const hubOk = typeof _hubTabVisible === 'function' && !!s.hub;
+  const ve = f => (typeof hubVe === 'function' && s.hub) ? hubVe(f) : oficina;
   // (12-nov) Oficina siempre carga (Marisa/Analía son rol empleado y quedaban afuera de esta sección)
-  const puedeCargar = oficina || (!(s.rol === 'gerente' && !s.empleado_id) &&
-                      !(s.rol === 'empleado' && !s.esCajera));
+  const puedeCargar = hubOk ? _hubTabVisible('cargar')
+    : (oficina || (!(s.rol === 'gerente' && !s.empleado_id) && !(s.rol === 'empleado' && !s.esCajera)));
+  const veFirma = hubOk ? _hubTabVisible('firma') : !oficina;
+  const vePagos = hubOk ? _hubTabVisible('pendientes') : oficina;
+  const veBots = hubOk ? _hubTabVisible('scrapers') : oficina;
 
   const items = [
+    {
+      icon: '🔑', titulo: 'Qué ves y qué podés hacer (permisos del Hub)',
+      desc: 'Lo maneja JP en el Hub → 👤 → Permisos: cada cosa de Tesorería está Habilitada, Pide permiso u Oculta según tu perfil (encargada, cajera, vendedora, cuenta del local, oficina), y cada persona tiene sus locales.',
+      pasos: [
+        'Habilitada: la usás normal. Oculta: no te aparece (ni el apartado ni el botón). La base de datos chequea lo mismo cuando grabás, así que no se puede saltear.',
+        '🔐 Pide permiso: la ves, pero al usarla aparece la ventana "Pedir permiso": alguien que la tenga habilitada en el Hub (para ese local, si es de la caja) pone su usuario personal, el mismo mail y clave del Hub. Si su cuenta pide el código del celular, también se lo pide. La cuenta del local o de la oficina no sirve para autorizar, y no te podés autorizar a vos misma. El permiso dura unos minutos, así un mismo trámite no lo pide en cada paso; para mirar algo (Saldos, Pendientes…) alcanza una vez hasta que recargues la página.',
+        'Las cuentas que ves en Saldos y Movimientos también salen de ahí: la caja de tu local (ver el saldo / los movimientos), las cajas de los otros locales, los bancos y Mercado Pago, y PPI.',
+        'Con más de un local en el Hub (y sin "ver las cajas de los otros locales"): al entrar elegís en cuál estás trabajando; arriba, al lado de Tesorería, aparece 📍 con el local y tocándolo lo cambiás. Lo que cargás va a la caja de ese local.',
+        'Si algo que necesitás no te aparece o te pide permiso, hablalo con JP: se cambia en el Hub, no hace falta tocar Tesorería.',
+      ],
+    },
     {
       icon: '🔐', titulo: 'Entrar una sola vez',
       desc: 'La sesión se comparte entre todos los módulos del sistema.',
@@ -68,19 +85,20 @@ function _manualSecciones() {
         'Elegí tipo (ingreso/egreso), importe, categoría y descripción. Tu caja ya viene preseleccionada. La descripción/observación es OBLIGATORIA (qué es, a quién se le pagó, comprobante): sin ella no se guarda.',
         'En egresos elegís el respaldo: 🧾 Recibo firmado (el circuito de siempre), 🧺 Factura/ticket o 🏦 Depósito bancario — en los dos últimos le sacás foto desde el celu y no requiere firma.',
         'Apenas elegís la foto o el PDF aparece una miniatura debajo: miralá antes de guardar, tiene que ser el ticket o la factura de ESE movimiento. Si adjuntás por error un recibo del sistema (dice MOV-…), el módulo te lo avisa en rojo.',
-        'Cualquier empleada o usuario genérico del local puede entrar a Tesorería y ver solo la pestaña 🧺 Comprobantes: carga un egreso de la caja de su local adjuntando foto de factura/ticket o del comprobante de depósito, y ve el estado de lo que subió (rechazado → 📎 Volver a subir).',
-        '🔐 RECIBOS DESDE LA CUENTA DEL LOCAL (alcorta@ / unicenter@): en Comprobantes también aparece "🧾 Recibo firmado". Se completa fecha, importe, categoría y descripción y se toca "🔐 Emitir recibo": lo tiene que autorizar la encargada o la cajera de ese local (o un admin). 1) Primero se abre la cámara de la PC: si la encargada o la cajera mira a la cámara y la reconoce (la cara registrada en el POS), queda autorizado con su nombre. 2) Si no está o no la reconoce: "📱 Pedir al celu o con clave" muestra quiénes están en el local y quiénes no; "Pedir a…" le manda un aviso al celu con Aceptar / Rechazar (se espera hasta 3 minutos; "Pedirle a otra persona" cambia). 3) Si no tiene el celu: pone acá su usuario y clave (si su cuenta pide el código del celu, lo pide). Después se baja el PDF, se firma y se manda por mail como siempre.',
-        'Lo que se autoriza es ESE recibo: el importe, la caja y la descripción quedan fijos en la autorización y la base graba exactamente eso. La autorización vale 10 minutos y sirve para un solo recibo. En "📋 Mis comprobantes" se ve el recibo con quién lo autorizó y cómo (con la cara, desde el celu o con su clave), su estado (falta bajar el PDF, falta que vuelva firmado, firmado) y el botón 📄 PDF para volver a bajarlo. El PDF dice abajo de "Firma autorizante" quién lo autorizó en el sistema. Las vendedoras con su usuario personal siguen sin recibos.',
-        'El respaldo elegido manda para todos los usuarios: si admin u Oficina cargan un egreso de una caja con "Recibo firmado", también sale el PDF con QR para imprimir y firmar. Oficina tiene además "∅ Sin respaldo" (default en cuentas de banco/MP; en cajas el default es recibo).',
-        ...(oficina ? ['🏢 OFICINA (Marisa, Analía y las cuentas de la oficina administracion@ / claudiaadorno@) carga ⬆ ingresos, ⬇ egresos y 🔄 transferencias en cualquier cuenta menos PPI, y emite 🧾 recibos firmados directo, sin pedir autorización. Todo queda a nombre del usuario con el que se cargó. La transferencia entre cuentas graba las dos puntas juntas (sale de una y entra en la otra): si algo falla no queda ninguna a medias.'] : []),
+        'Qué tipos ves (⬆ Ingreso, ⬇ Egreso, 🔄 Transferencia), qué respaldos (🧾 Recibo, 🧺 Factura, 🏦 Depósito, ∅ Sin respaldo) y en qué cuentas podés cargar lo decide el Hub (ver "Qué ves y qué podés hacer"). Hoy: las vendedoras y la cuenta del local tienen el formulario simple 🧺 Comprobantes (egreso de la caja de su local con foto de factura/ticket o del depósito, y el estado de lo que subieron: rechazado → 📎 Volver a subir); encargadas y cajeras cargan ingresos, egresos y recibos en la caja de su local; Oficina carga en todas las cuentas menos PPI y transfiere entre cuentas.',
+        '🔐 RECIBOS DESDE LA CUENTA DEL LOCAL (alcorta@ / unicenter@): en Comprobantes también aparece "🧾 Recibo firmado". Se completa fecha, importe, categoría y descripción y se toca "🔐 Emitir recibo": lo autoriza quien tenga «Hacer un recibo» habilitado en el Hub para ese local (la encargada, la cajera o administración). 1) La cámara de la PC: solo cuando el Hub tenga las caras prendidas (hoy están apagadas hasta que JP termine de grabarlas); si mira a la cámara y la reconoce, queda autorizado con su nombre. 2) "Pedir a…" le manda un aviso al celu con Aceptar / Rechazar a quien esté en la lista del local (se espera hasta 3 minutos; "Pedirle a otra persona" cambia). 3) Si no tiene el celu: pone acá su usuario y clave (si su cuenta pide el código del celu, lo pide). Después se baja el PDF, se firma y se manda por mail como siempre.',
+        'Lo que se autoriza es ESE recibo: el importe, la caja y la descripción quedan fijos en la autorización y la base graba exactamente eso. La autorización vale 10 minutos y sirve para un solo recibo. En "📋 Mis comprobantes" se ve el recibo con quién lo autorizó y cómo (con la cara, desde el celu o con su clave), su estado (falta bajar el PDF, falta que vuelva firmado, firmado) y el botón 📄 PDF para volver a bajarlo. El PDF dice abajo de "Firma autorizante" quién lo autorizó en el sistema. Las vendedoras con su usuario personal no hacen recibos (Oculta en el Hub).',
+        'El respaldo elegido manda para todos los usuarios: si admin u Oficina cargan un egreso de una caja con "Recibo firmado", también sale el PDF con QR para imprimir y firmar. "∅ Sin respaldo" lo tiene quien opera bancos y Mercado Pago (hoy Oficina): es el default en cuentas de banco/MP; en cajas el default es recibo.',
+        ...(ve('tes.transferir') ? ['🏢 OFICINA (Marisa, Analía y las cuentas de la oficina administracion@ / claudiaadorno@) carga ⬆ ingresos, ⬇ egresos y 🔄 transferencias en cualquier cuenta menos PPI, y emite 🧾 recibos firmados directo, sin pedir autorización. Todo queda a nombre del usuario con el que se cargó. La transferencia entre cuentas graba las dos puntas juntas (sale de una y entra en la otra): si algo falla no queda ninguna a medias.'] : []),
+        ...(ve('tes.corregir_anular') ? ['✏️ Corregir / ✗ Anular: aparecen en los comprobantes manuales todavía no controlados de las cuentas en las que podés cargar (según el Hub, «Corregir o anular un comprobante no controlado»). Lo que ya volvió firmado o administración controló no se toca: se avisa con ⚠️.'] : []),
         'Las facturas y los comprobantes de depósito se guardan solos en el OneDrive (cada hora): la factura entra a CONTABILIZAR / 1 - SIN CONTABILIZAR y el depósito al archivero del mes. No hace falta mandar nada por mail.',
         'Si administración rechaza el archivo (foto equivocada, ilegible) te llega un aviso y el movimiento muestra "↩ Volver a subir": tocá ✏️, adjuntá el archivo correcto y listo.',
         '👤 Pago a Nora (cubre días en Alcorta o Unicenter): egreso de tu caja con la categoría "Pago Nora" y recibo firmado. Aparece el recuadro 📅 "Días que cubre este pago": cargá desde / hasta (inclusive) y cuántos días trabajó. Esos días deciden el MES de la liquidación de sueldos (no la fecha en que le pagaste) y tu caja decide el LOCAL. Si una semana cruza de mes, el sistema la reparte sola entre los dos meses.',
         'Si te equivocaste en los días, tocá ✏️ en el movimiento y corregilos: se puede aunque el recibo ya esté firmado.',
       ],
     });
-    // (12-nov) Oficina no tiene esa pestaña (los recibos se controlan desde el módulo Documentos)
-    if (!oficina) items.push({
+    // (12-nov) Oficina no tiene esa pestaña (los recibos se controlan desde el módulo Documentos) · (14-nov) según el Hub
+    if (veFirma) items.push({
       icon: '✍️', titulo: 'Pendientes de firma',
       desc: 'Egresos cargados con recibo que todavía no tienen el recibo firmado escaneado.',
       pasos: [
@@ -100,7 +118,7 @@ function _manualSecciones() {
     });
   }
 
-  if (oficina) {
+  if (vePagos) {
     items.push({
       icon: '📅', titulo: 'Pagos pendientes',
       desc: 'La agenda de pagos: impuestos, proveedores, empleados, socios. Reemplaza la hoja "Pendientes" del Libro Bancos.',
@@ -123,6 +141,8 @@ function _manualSecciones() {
         'Todos los días a las 8 le llega a JP el aviso de lo que vence hoy y el próximo día hábil.',
       ],
     });
+  }
+  if (veBots) {
     items.push({
       icon: '🤖', titulo: 'Bots',
       desc: 'Los robots que traen la información de los bancos: Galicia, Mercado Pago y PPI.',
@@ -135,8 +155,8 @@ function _manualSecciones() {
     });
   }
 
-  // (22-sep) Para TODAS las usuarias, cajeras y encargadas
-  items.push({
+  // (22-sep) Para TODAS las usuarias, cajeras y encargadas · (14-nov) según el Hub («Ver transferencias»)
+  if (!hubOk || _hubTabVisible('transferencias')) items.push({
     icon: '💸', titulo: 'Transferencias recibidas',
     desc: 'Lo que entra al CVU/alias de Mercado Pago de la empresa (la cuenta madre, que las cuentas colaboradoras no ven).',
     pasos: [
@@ -152,13 +172,15 @@ function _manualSecciones() {
       icon: '🔐', titulo: 'Solo admin',
       desc: 'Herramientas exclusivas de administración.',
       pasos: [
-        'PPI (inversiones bursátiles): solo visible para el admin.',
+        'PPI (inversiones bursátiles): hoy solo lo ve el admin (en el Hub, «Inversiones PPI» Oculta para los demás perfiles).',
         '"📋 Pegar tabla del banco" en Cargar: importación masiva de movimientos pegando desde Office Banking.',
-        'Los accesos de cada usuaria se manejan por email — pedir cambios a Claude/JP.',
+        'Los accesos de cada usuaria se manejan en el Hub → 👤 → Permisos (perfil, funciones y locales). Las cuentas de banco y las categorías se editan acá.',
       ],
     });
   }
 
+  // (14-nov) Saldos y Movimientos solo para quien tiene esas pestañas según el Hub
+  if (hubOk) return items.filter(s => !((s.titulo === 'Saldos' && !_hubTabVisible('dashboard')) || (s.titulo === 'Movimientos' && !_hubTabVisible('movimientos'))));
   return items;
 }
 

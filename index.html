@@ -893,6 +893,7 @@ let currentTab = 'dashboard';
 
 // Cache global de datos para no re-fetchear todo el tiempo
 let _cuentas = [];
+let _cuentasTodas = [];   // (14-nov) todas las que devuelve la base; _cuentas = las que el Hub deja mirar
 let _categorias = [];
 
 const fmt$ = (n, moneda) => {
@@ -1042,6 +1043,9 @@ async function initSession() {
   // rol directora SIN legajo. Tienen lo mismo que Marisa y Analía con sus usuarios personales (todo menos PPI).
   // En la base: tesoreria_es_cuenta_oficina() / tesoreria_es_oficina() (sql/10).
   if (u.rol === 'directora' && !u.empleado_id) session.esCuentaOficina = true;
+  // (14-nov) Permisos por función desde el Hub: qué ve, qué hace y qué pide permiso. Ver cargarPermisosHub().
+  await cargarPermisosHub();
+  await prepararLocalTrabajo();
   enterApp();
   return true;
 }
@@ -1055,63 +1059,246 @@ function enterApp() {
   const ADMIN_OFICINA_EMAILS = ['marisaisabel07@yahoo.com.ar', 'rivera.analia.leon@gmail.com', 'administracion@claudiaadorno.com', 'claudiaadorno@claudiaadorno.com'];
   session.esOficina = session.verTodo || !!session.esCuentaOficina ||
     ADMIN_OFICINA_EMAILS.includes((session.email || '').toLowerCase());
+  // (14-nov) con varios locales manda el que eligió (📍), no el del legajo
+  const _lugar = _hubEligeLocal() ? '📍 ' + _localNombre(session.localTrabajo) + ' ▾' : (session.localGerencia || '');
   document.getElementById('hdr-sub').textContent = '· ' + (
     session.rol === 'admin' ? 'Admin' :  // (13-oct, JP) sin el mail: empujaba los íconos del header
     session.localGerencia === 'oficina' ? 'Oficina (admin)' :
     session.esOficina ? 'Oficina' :
-    session.esCajera ? 'Cajera · ' + (session.localGerencia || '') :
-    (session.soloComprobantes && session.miCaja) ? 'Comprobantes · ' + (session.localGerencia || '') :
-    session.esGenerico ? 'Local · ' + (session.localGerencia || '') :   // (11-nov) la cuenta del local no es una encargada
-    'Encargada · ' + (session.localGerencia || '')
+    session.esCajera ? 'Cajera · ' + _lugar :
+    (session.soloComprobantes && session.miCaja) ? 'Comprobantes · ' + _lugar :
+    session.esGenerico ? 'Local · ' + _lugar :   // (11-nov) la cuenta del local no es una encargada
+    'Encargada · ' + _lugar
   );
+  // (14-nov) con varios locales y sin "ver otros locales": tocando la cabecera elige en cuál está trabajando
+  { const h = document.getElementById('hdr-sub');
+    h.style.cursor = _hubEligeLocal() ? 'pointer' : '';
+    h.title = _hubEligeLocal() ? 'Cambiar el local en el que estás trabajando' : '';
+    h.onclick = _hubEligeLocal() ? async () => { await elegirLocalTrabajo(); enterApp(); } : null; }
   // (9-sep) la pestaña de carga se llama según lo que puede hacer el usuario
   // (13-oct, JP) la pestaña se llama Comprobantes para todos
   { const b = document.getElementById('tab-cargar'); b.querySelector('.lb').textContent = 'Comprobantes'; b.title = 'Comprobantes'; }
-  // ── Visibilidad de tabs por rol ── (session.esOficina se calcula arriba, antes de la cabecera)
-  if (session.esOficina) {
-    // Oficina ve Pendientes y Bots (display explícito, a prueba de caches viejas)
-    document.getElementById('tab-pendientes').style.display = '';
-    document.getElementById('tab-scrapers').style.display = '';
-    // (6-ago, JP) Recibos SÍ se ve desde admin / Oficina / Marisa / Analía.
-    // Lo que hay que bloquear son vendedoras y usuarios genéricos de local,
-    // para que no puedan tocar la caja (ver rama de abajo).
-    document.getElementById('tab-cargar').style.display = '';
-    // (13-oct, JP) Pendientes de firma se controla desde el módulo Documentos: pestaña oculta
-    document.getElementById('tab-firma').style.display = 'none';
-  } else {
-    // Locales: solo Saldos + Movimientos (+ Recibos según quién sea).
-    // TODO explícito: si antes entró un admin en este mismo navegador, los
-    // tabs quedaban prendidos de la sesión anterior (bug 30-jul).
-    document.getElementById('tab-pendientes').style.display = 'none';
-    document.getElementById('tab-scrapers').style.display = 'none';
-    // Quiénes NO pueden tocar la caja:
-    //   · usuario GENÉRICO del local (gerente sin empleada asociada,
-    //     ej: alcorta@ / unicenter@)
-    //   · vendedoras (rol 'empleado' que no sea cajera)
-    // Sí la manejan: encargadas (gerente con empleada) y cajeras.
-    const generico = session.rol === 'gerente' && !session.empleado_id;
-    const vendedora = session.rol === 'empleado' && !session.esCajera;
-    // (9-sep, JP) todos pueden CARGAR — genéricos y vendedoras solo
-    // factura/ticket o depósito (ver renderCargar); recibos = cajeras/encargadas.
-    document.getElementById('tab-cargar').style.display = '';
-    // (10-ago) Pendientes firma solo para quien hace recibos
-    document.getElementById('tab-firma').style.display =
-      (generico || vendedora) ? 'none' : '';
-    // Vendedora: NO ve saldos ni movimientos — entra directo a Comprobantes
-    document.getElementById('tab-dashboard').style.display = vendedora ? 'none' : '';
-    document.getElementById('tab-movimientos').style.display = vendedora ? 'none' : '';
-    if (vendedora) {
-      currentTab = 'cargar';
-      document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === 'cargar'));
-    }
-  }
+  // ── Visibilidad de las pestañas: (14-nov) la decide el Hub ── una pestaña se ve si alguna de sus funciones
+  // no está Oculta (TAB_FUNCS). Antes era por rol: vendedora sin Saldos/Movimientos, Oficina sin Pendientes de
+  // firma, locales sin Pendientes/Bots — los perfiles del Hub dicen lo mismo.
+  Object.keys(TAB_FUNCS).forEach(t => {
+    const b = document.getElementById('tab-' + t);
+    if (b) b.style.display = _hubTabVisible(t) ? '' : 'none';
+  });
   // (22-sep) el push de "transferencia recibida" abre directo la pestaña
-  if (new URLSearchParams(location.search).get('tab') === 'transferencias') {
-    currentTab = 'transferencias';
-    document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === 'transferencias'));
+  if (new URLSearchParams(location.search).get('tab') === 'transferencias' && _hubTabVisible('transferencias')) currentTab = 'transferencias';
+  if (!_hubTabVisible(currentTab)) {
+    currentTab = ['dashboard', 'cargar', 'movimientos', 'transferencias', 'pendientes', 'firma', 'scrapers']
+      .find(t => _hubTabVisible(t) && TAB_FUNCS[t].some(f => hubEstado(f) === 'h'))
+      || Object.keys(TAB_FUNCS).find(_hubTabVisible) || 'cargar';
   }
+  document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === currentTab));
   cargar();
   actualizarBtnNotifs();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// 🔑 PERMISOS DEL HUB (14-nov-2026, pedido JP vía Hub e Infraestructura)
+// JP maneja en el Hub → 👤 → Permisos: cada función de Tesorería está Habilitada ('h'), Pide permiso ('a') u
+// Oculta ('o') según el perfil, y cada persona tiene sus locales. Tesorería sigue al Hub tal cual (JP, 14-nov):
+//   'h' se usa · 'o' no se ve · 'a' se ve, y al usarla la autoriza un superior con SU usuario y clave (cliente
+//   aparte) → tesoreria_hub_autorizar; la base la acepta 5 minutos (sql/11). La base chequea lo mismo al grabar.
+// Solo estos ids (si falta uno, se agrega en el Hub, tabla hub_funciones).
+// ═══════════════════════════════════════════════════════════════════════
+const HUB_FUNCIONES = ['tes.saldo_caja', 'tes.movimientos', 'tes.comprobante', 'tes.recibo', 'tes.ingreso',
+  'tes.corregir_anular', 'tes.firma', 'tes.transferencias', 'tes.transferir', 'tes.bancos', 'tes.pagos_pendientes',
+  'tes.bots', 'tes.ppi', 'tes.ver_otros_locales', 'tes.operar_otros_locales'];
+const HUB_NOMBRES = {
+  'tes.saldo_caja': 'ver el saldo de la caja', 'tes.movimientos': 'ver los movimientos de la caja',
+  'tes.comprobante': 'subir facturas, tickets o depósitos', 'tes.recibo': 'hacer recibos para firmar',
+  'tes.ingreso': 'cargar ingresos a la caja', 'tes.corregir_anular': 'corregir o anular comprobantes',
+  'tes.firma': 'ver los pendientes de firma', 'tes.transferencias': 'ver y reclamar transferencias recibidas',
+  'tes.transferir': 'transferir entre cuentas', 'tes.bancos': 'ver y operar bancos y Mercado Pago',
+  'tes.pagos_pendientes': 'ver y cargar pagos pendientes', 'tes.bots': 'usar los bots de los bancos',
+  'tes.ppi': 'ver las inversiones de PPI', 'tes.ver_otros_locales': 'ver las cajas de los otros locales',
+  'tes.operar_otros_locales': 'cargar en la caja de otro local' };
+// qué funciones abren cada pestaña (se ve si alguna no está Oculta)
+const TAB_FUNCS = {
+  dashboard: ['tes.saldo_caja', 'tes.bancos', 'tes.ppi'],
+  movimientos: ['tes.movimientos'],
+  cargar: ['tes.comprobante', 'tes.recibo', 'tes.ingreso', 'tes.transferir'],
+  firma: ['tes.firma'],
+  pendientes: ['tes.pagos_pendientes'],
+  scrapers: ['tes.bots'],
+  transferencias: ['tes.transferencias'] };
+const _LOCAL_NOM = { alcorta: 'Alcorta', unicenter: 'Unicenter', oficina: 'Oficina' };
+function _localNombre(l) { return _LOCAL_NOM[String(l || '').toLowerCase()] || (l ? String(l) : ''); }
+
+async function cargarPermisosHub() {
+  session.hub = {}; session.hubVistos = {}; session.hubAut = {};
+  try {
+    const rs = await Promise.all(HUB_FUNCIONES.map(f => sb.rpc('hub_puedo', { p_funcion: f })));
+    const mal = rs.find(r => r.error); if (mal) throw mal.error;
+    HUB_FUNCIONES.forEach((f, i) => { session.hub[f] = ['h', 'a', 'o'].includes(rs[i].data) ? rs[i].data : 'o'; });
+    const { data: locs, error: eL } = await sb.rpc('hub_mis_locales');
+    if (eL) throw eL;
+    session.locales = (Array.isArray(locs) ? locs : []).map(x => String(x).toLowerCase());
+    // La llave de caras del Hub (hub_parametros 'caras_activas'): apagada hasta que JP termine de grabar las caras
+    try { const { data: ca } = await sb.rpc('hub_caras_activas'); session.carasActivas = ca === true; } catch (_) { session.carasActivas = false; }
+  } catch (e) {
+    // Sin el Hub la pantalla muestra lo de siempre y decide la base (sus chequeos no dependen de esta lectura)
+    session.hubFallo = true;
+    HUB_FUNCIONES.forEach(f => { session.hub[f] = 'h'; });
+    session.locales = [];
+    setTimeout(() => toast('No pude leer tus permisos del Hub: recargá la página. Mientras tanto, la base decide qué podés hacer.', true), 400);
+  }
+  const lg = String(session.localGerencia || '').toLowerCase();
+  if (!session.locales.length && lg) session.locales = [lg];
+  // Formulario simple (solo comprobantes / recibos de su caja) para quien no carga ingresos, ni transfiere, ni opera bancos.
+  // Es lo que antes era "vendedora o cuenta del local"; ahora sale del Hub.
+  if (!session.hubFallo) session.soloComprobantes = !hubVe('tes.ingreso') && !hubVe('tes.transferir') && !hubVe('tes.bancos');
+}
+function hubEstado(f) { return (session && session.hub && session.hub[f]) || 'o'; }
+function hubVe(f) { return hubEstado(f) !== 'o'; }
+// 'h', o 'a' ya autorizado en esta sesión (para mirar alcanza una vez)
+function hubVisto(f) { return hubEstado(f) === 'h' || !!(session && session.hubVistos && session.hubVistos[f]); }
+function _hubTabVisible(t) { return (TAB_FUNCS[t] || []).some(hubVe); }
+function _hubTabAbierta(t) { const fs = TAB_FUNCS[t] || []; return !fs.length || fs.some(hubVisto); }
+function _hubEligeLocal() { return (session.locales || []).length > 1 && !hubVe('tes.ver_otros_locales'); }
+
+// Local en el que está trabajando: el suyo; con varios (y sin "ver otros locales"), el que elija.
+async function prepararLocalTrabajo() {
+  const locs = session.locales || [];
+  const lg = String(session.localGerencia || '').toLowerCase();
+  let l = null;
+  if (locs.length === 1) l = locs[0];
+  else if (_hubEligeLocal()) {
+    // con varios locales elige ella (manda el Hub, no el local del legajo); se recuerda mientras dure la pestaña
+    try { const g = sessionStorage.getItem('tes-local'); if (g && locs.includes(g)) l = g; } catch (_) {}
+    if (!l) l = await elegirLocalTrabajo();
+  } else if (lg && locs.includes(lg)) l = lg;
+  if (!l) l = locs.includes('oficina') ? 'oficina' : (locs[0] || lg || null);
+  session.localTrabajo = l;
+}
+function elegirLocalTrabajo() {
+  const locs = session.locales || [];
+  return new Promise(listo => {
+    const f = document.createElement('div');
+    f.className = 'ra-fondo';
+    f.innerHTML = `<div class="ra-caja" role="dialog" aria-modal="true">
+      <h3>¿En qué local estás trabajando?</h3>
+      <div class="ra-sub">Tenés más de un local en el Hub. Lo que cargues va a la caja del local que elijas. Lo cambiás tocando arriba, al lado de Tesorería.</div>
+      <div class="ra-botones" style="justify-content:flex-start;">${locs.map(l => `<button type="button" class="btn-secondary" data-l="${escHtml(l)}">📍 ${escHtml(_localNombre(l))}</button>`).join('')}</div></div>`;
+    document.body.appendChild(f);
+    f.querySelectorAll('[data-l]').forEach(b => { b.onclick = () => {
+      const l = b.dataset.l; session.localTrabajo = l;
+      try { sessionStorage.setItem('tes-local', l); } catch (_) {}
+      f.remove(); listo(l);
+    }; });
+  });
+}
+
+// ¿Puede operar en esta cuenta? (mismo criterio que tesoreria_hub_cuenta_ok en la base)
+function _hubFuncsCuenta(c) {
+  if (!c) return [];
+  if (c.grupo === 'PPI') return ['tes.ppi'];
+  if (c.tipo === 'caja') return (session.locales || []).includes(String(c.local || '').toLowerCase()) ? [] : ['tes.operar_otros_locales'];
+  return ['tes.bancos'];
+}
+function _cuentaOperable(c) { return _hubFuncsCuenta(c).every(hubVe); }
+// ¿La puede mirar? (Saldos y Movimientos)
+function _cuentaVisible(c) {
+  if (c.grupo === 'PPI') return hubVisto('tes.ppi');
+  if (c.tipo === 'caja') return (session.locales || []).includes(String(c.local || '').toLowerCase())
+    ? (hubVisto('tes.saldo_caja') || hubVisto('tes.movimientos')) : hubVisto('tes.ver_otros_locales');
+  return hubVisto('tes.bancos');
+}
+// Qué función es grabar este movimiento (mismo criterio que tesoreria_hub_funcion_mov en la base)
+function _hubFuncMov(importe, respaldo) {
+  return importe > 0 ? 'tes.ingreso' : respaldo === 'recibo' ? 'tes.recibo'
+    : (respaldo === 'factura' || respaldo === 'deposito') ? 'tes.comprobante' : 'tes.bancos';
+}
+function _hubLocalDe(c) { return c && c.tipo === 'caja' ? String(c.local || '').toLowerCase() : null; }
+
+// Antes de grabar: 'o' frena · 'a' pide el usuario de un superior · 'h' sigue. Una autorización vale 4 minutos acá
+// (la base la acepta 5), así un mismo trámite con varios pasos no la pide de nuevo en cada uno.
+async function hubExigir(funcs, local, que) {
+  funcs = [...new Set((funcs || []).filter(Boolean))];
+  const no = funcs.find(f => hubEstado(f) === 'o');
+  if (no) { toast('Tu usuario no puede ' + (HUB_NOMBRES[no] || no) + ' (permisos del Hub)', true); return false; }
+  const loc = local ? String(local).toLowerCase() : '';
+  const vig = f => { const t = (session.hubAut || {})[f + '|' + loc] || (session.hubAut || {})[f + '|']; return t && Date.now() - t < 4 * 60 * 1000; };
+  const pedir = funcs.filter(f => hubEstado(f) === 'a' && !vig(f));
+  if (!pedir.length) return true;
+  return !!(await hubPedirSuperior(pedir, loc || null, que));
+}
+// Pestaña en "Pide permiso": la tarjeta con el botón para pedirlo
+function _renderPidePermiso(tab) {
+  const fs = (TAB_FUNCS[tab] || []).filter(f => hubEstado(f) === 'a');
+  document.getElementById('contenido').innerHTML = `<div class="card" style="max-width:520px;margin:24px auto;text-align:center;">
+    <div style="font-size:30px;">🔐</div>
+    <h3 class="card-title" style="margin:6px 0;">Esto pide permiso</h3>
+    <div style="font-size:13px;color:var(--muted);line-height:1.5;margin-bottom:14px;">Para ${escHtml(fs.map(f => HUB_NOMBRES[f] || f).join(', '))} lo tiene que autorizar alguien que lo tenga habilitado en el Hub, con su usuario personal.</div>
+    <button class="btn-primary" style="width:auto;padding:9px 22px;" onclick="_hubAbrirTab('${tab}')">🔐 Pedir permiso</button></div>`;
+}
+async function _hubAbrirTab(tab) {
+  const fs = (TAB_FUNCS[tab] || []).filter(f => hubEstado(f) === 'a');
+  if (fs.length && await hubPedirSuperior(fs, null, 'ver esto')) renderTab(tab);
+}
+
+// Ventana de usuario superior (mismo formato que el resto del sistema: cliente aparte, código del celu si lo tiene).
+// Devuelve { nombre } si autorizó, o null si canceló.
+function hubPedirSuperior(funcs, local, que) {
+  return new Promise(listo => {
+    const nombres = funcs.map(f => HUB_NOMBRES[f] || f);
+    const f = document.createElement('div');
+    f.className = 'ra-fondo';
+    f.setAttribute('data-adorno-superior', '1');   // para /hub/equipo.js: acá va el usuario personal, no el del equipo
+    f.innerHTML = `<div class="ra-caja" role="dialog" aria-modal="true">
+      <h3>🔐 Pedir permiso</h3>
+      <div class="ra-sub">Para <b>${escHtml(nombres.join(', '))}</b>${local ? ' en <b>' + escHtml(_localNombre(local)) + '</b>' : ''} tu usuario pide permiso.
+        Lo autoriza alguien que lo tenga habilitado en el Hub${local ? ' para ese local' : ''}, con su usuario personal (el mismo mail y clave del Hub).
+        La cuenta del local o de la oficina no alcanza. La sesión de quien autoriza se cierra sola.</div>
+      <div class="ra-clave">
+        <input type="text" inputmode="email" id="hs-mail" placeholder="mail de quien autoriza" autocomplete="off" autocapitalize="off" spellcheck="false">
+        <input type="password" id="hs-pass" placeholder="su clave" autocomplete="new-password">
+      </div>
+      <div id="hs-err" style="font-size:12px;color:#b91c1c;margin-top:8px;min-height:16px;"></div>
+      <div class="ra-botones">
+        <button type="button" class="btn-secondary" id="hs-cancel">Cancelar</button>
+        <button type="button" class="btn-primary" style="width:auto;padding:9px 20px;" id="hs-ok">Autorizar</button>
+      </div></div>`;
+    document.body.appendChild(f);
+    const $ = s => f.querySelector(s);
+    const cerrar = r => { f.remove(); listo(r); };
+    $('#hs-cancel').onclick = () => cerrar(null);
+    f.addEventListener('keydown', e => { if (e.key === 'Escape') cerrar(null); });
+    $('#hs-pass').addEventListener('keydown', e => { if (e.key === 'Enter') $('#hs-ok').click(); });
+    setTimeout(() => $('#hs-mail').focus(), 50);
+    $('#hs-ok').onclick = async () => {
+      const email = ($('#hs-mail').value || '').trim().toLowerCase(), pass = $('#hs-pass').value || '';
+      const err = $('#hs-err'), btn = $('#hs-ok');
+      err.textContent = '';
+      if (!email || !pass) { err.textContent = 'Completá el mail y la clave.'; return; }
+      if (email === String(session.email || '').toLowerCase()) { err.textContent = 'Lo tiene que autorizar otra persona, no tu usuario.'; return; }
+      btn.disabled = true; $('#hs-cancel').disabled = true; btn.textContent = 'Autorizando…';
+      const cli = window.supabase.createClient(SUPA_URL, SUPA_KEY, { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false, storageKey: 'tesoreria-superior' } });
+      const salir = async () => { try { await cli.auth.signOut({ scope: 'local' }); } catch (_) {} };
+      try {
+        const { error } = await cli.auth.signInWithPassword({ email, password: pass });
+        if (error) throw new Error('Mail o clave incorrectos.');
+        if (window.ADORNO_MFA && ADORNO_MFA.pedirCodigo && !(await ADORNO_MFA.pedirCodigo(cli))) throw new Error('Sin el código del celular no se puede autorizar.');
+        const { data, error: eA } = await cli.rpc('tesoreria_hub_autorizar', { p_funciones: funcs, p_local: local || null, p_para_email: session.email });
+        if (eA) throw new Error(eA.message || 'No se pudo autorizar');
+        if (!data || !data.ok) throw new Error((data && data.motivo) || 'No se pudo autorizar');
+        await salir();
+        const t = Date.now();
+        funcs.forEach(fn => { session.hubAut[fn + '|' + (local || '')] = t; session.hubVistos[fn] = true; });
+        _cuentas = _cuentasTodas.filter(_cuentaVisible);   // lo que ahora se puede mirar
+        toast('✓ Autorizó ' + _raPila(data.nombre));
+        cerrar({ nombre: data.nombre });
+      } catch (e) {
+        await salir();
+        err.textContent = e.message || String(e);
+        btn.disabled = false; $('#hs-cancel').disabled = false; btn.textContent = 'Autorizar';
+      }
+    };
+  });
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -1122,12 +1309,15 @@ async function cargar() {
   try {
     // Saldos por cuenta (la RLS filtra para gerente)
     const { data: saldos } = await sb.from('tesoreria_saldos').select('*');
-    _cuentas = saldos || [];
+    // (14-nov, Hub) _cuentasTodas = lo que devuelve la base (para cargar); _cuentas = lo que el Hub deja MIRAR
+    // (Saldos y Movimientos): su caja, otras cajas, bancos y Mercado Pago, PPI.
+    _cuentasTodas = saldos || [];
+    _cuentas = _cuentasTodas.filter(_cuentaVisible);
     // (13-oct, JP) hora del último saldo informado por el banco/MP/PPI, para avisar si está viejo
     try {
       const { data: hs } = await sb.from('tesoreria_cuentas').select('id,saldo_banco_at');
       const mapa = Object.fromEntries((hs || []).map(x => [x.id, x.saldo_banco_at]));
-      _cuentas.forEach(c => { c.saldo_banco_at = mapa[c.id] || null; });
+      _cuentasTodas.forEach(c => { c.saldo_banco_at = mapa[c.id] || null; });
     } catch (_) {}
     // Categorías
     const { data: cats } = await sb.from('tesoreria_categorias')
@@ -1158,6 +1348,8 @@ function cambiarTab(tab) {
 }
 
 function renderTab(tab) {
+  // (14-nov) pestaña en "Pide permiso" del Hub: primero la autorización (Comprobantes la pide al grabar)
+  if (tab !== 'cargar' && !_hubTabAbierta(tab)) return _renderPidePermiso(tab);
   if (tab === 'dashboard')   return renderDashboard();
   if (tab === 'movimientos') return renderMovimientos();
   if (tab === 'cargar')      return renderCargar();
@@ -1231,7 +1423,9 @@ async function verificarTransferenciasAhora() {
 async function reclamarTransferencia(id, importe) {
   const nota = prompt(`Transferencia de ${fmt$(importe)}.\n\n¿De qué cliente es / qué se llevó?\n\nQueda registrada a nombre de tu local y DESAPARECE de esta lista para todos (el otro local ya no la ve).`, '');
   if (nota === null) return;
-  const { data, error } = await sb.rpc('tesoreria_transferencia_reclamar', { p_id: id, p_nota: nota });
+  if (!(await hubExigir(['tes.transferencias']))) return;   // (14-nov) permisos del Hub
+  // (14-nov) con varios locales, se reclama para el local en el que está trabajando
+  const { data, error } = await sb.rpc('tesoreria_transferencia_reclamar', { p_id: id, p_nota: nota, p_local: (session.locales || []).length > 1 ? session.localTrabajo : null });
   if (error) { alert('No se pudo reclamar: ' + error.message); return; }
   toast(`Reclamada para ${(data?.local||'').toUpperCase()} ✓ · ya no aparece en la lista`);
   renderTransferencias();
@@ -1307,11 +1501,11 @@ async function renderPendientesFirma() {
                 <button class="btn-secondary" style="width:auto;padding:8px 14px;font-size:13px;color:var(--red);border-color:#fca5a5;" onclick="cancelarMovimiento(${m.id}, ${m.pdf_descargado_at ? JSON.stringify(m.pdf_descargado_at) : 'null'})">✗ Anular</button>`;
               if (m.origen !== 'manual' || m.archivo_item_id) return '';
               const salio = m.controlado;   // imprimir ya no traba (17-sep): traba volver firmado
-              if (!salio) return `
+              if (!salio && _puedeCorregirMov(m)) return `
                 <button class="btn-secondary" style="width:auto;padding:8px 14px;font-size:13px;" onclick="abrirEditarMov(${m.id})" title="Corregir importe, fecha, descripción o categoría">✏️ Corregir</button>
                 <button class="btn-secondary" style="width:auto;padding:8px 14px;font-size:13px;color:var(--red);border-color:#fca5a5;" onclick="cancelarMovimiento(${m.id}, ${m.pdf_descargado_at ? JSON.stringify(m.pdf_descargado_at) : 'null'})" title="Anular este comprobante: desaparece y la caja vuelve como estaba">✗ Anular</button>`;
               return `
-                <button class="btn-secondary" style="width:auto;padding:8px 14px;font-size:13px;" onclick="reportarProblemaMov(${m.id})" title="Administración ya lo controló — avisales y ellos lo rechazan">⚠️ Avisar a Oficina</button>`;
+                <button class="btn-secondary" style="width:auto;padding:8px 14px;font-size:13px;" onclick="reportarProblemaMov(${m.id})" title="${salio ? 'Administración ya lo controló — avisales y ellos lo rechazan' : 'Tu usuario no corrige ni anula comprobantes (permisos del Hub) — avisale a administración'}">⚠️ Avisar a Oficina</button>`;
             })()}
           </div>
         </div>
@@ -1320,6 +1514,24 @@ async function renderPendientesFirma() {
   `;
 }
 
+// (14-nov, Hub) ¿se muestran ✏️ Corregir / ✗ Anular? «Corregir o anular» no Oculta + la cuenta (su local, otro local,
+// bancos, PPI). La base lo vuelve a chequear al grabar.
+function _cuentaDeMov(m) {
+  if (!m) return null;
+  return _cuentasTodas.find(c => c.id === m.cuenta_id)
+    || (session.miCaja && Number(session.miCaja.id) === Number(m.cuenta_id) ? { tipo: 'caja', local: session.miCaja.local } : null);
+}
+function _puedeCorregirMov(m) {
+  if (!hubVe('tes.corregir_anular')) return false;
+  const c = _cuentaDeMov(m);
+  return c ? _cuentaOperable(c) : true;
+}
+async function _hubExigirCorregir(id) {
+  let m = (_movsCache || []).find(x => x.id === id);
+  if (!m) { const { data } = await sb.from('tesoreria_movimientos_view').select('id,cuenta_id').eq('id', id).maybeSingle(); m = data; }
+  const c = _cuentaDeMov(m);
+  return hubExigir(['tes.corregir_anular', ..._hubFuncsCuenta(c)], _hubLocalDe(c), 'corregir o anular');
+}
 async function cancelarMovimiento(id, impresoEl) {
   // El motivo NO es decorativo: queda en tesoreria_movimientos_borrados, que es
   // el único rastro que va a quedar de este comprobante. La RPC lo exige.
@@ -1330,6 +1542,7 @@ async function cancelarMovimiento(id, impresoEl) {
   const motivo = prompt('¿Por qué anulás este comprobante?\n\nEl movimiento desaparece y la caja vuelve como estaba.' + aviso + '\n\nMotivo (obligatorio):');
   if (motivo === null) return;
   if (!motivo.trim()) { toast('Hace falta el motivo', true); return; }
+  if (!(await _hubExigirCorregir(id))) return;   // (14-nov) permisos del Hub
   try {
     const { data, error } = await sb.rpc('tesoreria_cancelar_movimiento', { p_mov_id: id, p_motivo: motivo });
     if (error) throw error;
@@ -1383,7 +1596,7 @@ function abrirModalPostCarga(movId) {
 function cerrarModalPostCarga() {
   const o = document.getElementById('modal-post-carga');
   if (o) o.remove();
-  cambiarTab(session.soloComprobantes ? 'cargar' : 'dashboard');   // (11-nov) la cuenta del local vuelve a Comprobantes
+  cambiarTab((session.soloComprobantes || !_hubTabVisible('dashboard')) ? 'cargar' : 'dashboard');   // (11-nov) la cuenta del local vuelve a Comprobantes
   cargar();
 }
 
@@ -1445,12 +1658,13 @@ function _raCancelar() { if (RA) _raCancelarPedido(RA.id); _raFin(null); }
 
 // Devuelve el id de la autorización aceptada, o null si se canceló
 function autorizarRecibo(recibo) {
-  const caja = _cuentas.find(c => c.id === recibo.cuenta_id) || session.miCaja || {};
+  const caja = _cuentasTodas.find(c => c.id === recibo.cuenta_id) || session.miCaja || {};
   const cat = _categorias.find(c => c.id === recibo.categoria_id);
   const resumen = fmt$(recibo.importe) + ' · ' + (caja.nombre || 'Caja') + (cat ? ' · ' + cat.nombre : '') + ' · ' + recibo.descripcion;
   return new Promise(async resolve => {
     RA = { recibo, resumen, resolve, local: String(session.localGerencia || '').toLowerCase(), id: null, poll: null, fin: false, desde: 0, lista: [] };
-    if (await _raCara()) return;   // 1) la cámara: autorizado o cancelado
+    // 1) la cámara: autorizado o cancelado · (14-nov) solo si el Hub tiene las caras prendidas (hub_caras_activas)
+    if (session.carasActivas && await _raCara()) return;
     _raVentana();                  // 2) aviso al celu y 3) usuario y clave
   });
 }
@@ -1489,6 +1703,7 @@ async function _raCara() {
       if (!sigue()) break;
       if (err) { msg(err.message || 'No se pudo autorizar'); await _raEsp(2000); break; }
       if (r && r.motivo === 'sin_rango') { msg(_raPila(r.nombre) + ': el recibo lo autoriza la encargada o la cajera'); await _raEsp(1800); break; }
+      if (r && r.motivo === 'caras_apagadas') { msg('El reconocimiento de caras está apagado: pedíselo al celu o con la clave'); await _raEsp(1500); break; }
       msg('No te reconozco: acercate a la cámara');
     }
     await _raEsp(250);
@@ -1776,6 +1991,9 @@ function _actualizadoHace(c){
   const viejo = min > 12 * 60;
   return ` <span style="font-size:11px;color:${viejo ? '#dc2626' : 'var(--muted)'};font-weight:${viejo ? '700' : '400'};" title="Último saldo informado por el banco/MP: ${new Date(c.saldo_banco_at).toLocaleString('es-AR')}${viejo ? ' · pasaron más de 12 h: revisá el bot' : ''}">· ${viejo ? '⚠ ' : ''}actualizado ${txt}</span>`;
 }
+async function _hubVerEnSaldos(f) {
+  if (await hubPedirSuperior([f], null, 'ver esto')) { await cargar(); }
+}
 function renderDashboard() {
   const cont = document.getElementById('contenido');
   if (_cuentas.length === 0) {
@@ -1798,6 +2016,11 @@ function renderDashboard() {
   });
 
   let html = '';
+  // (14-nov, Hub) lo que está en "Pide permiso" para mirar: un botón para pedirlo
+  const _pedibles = [['tes.bancos', '🏦 Ver bancos y Mercado Pago'], ['tes.ver_otros_locales', '🏬 Ver las cajas de los otros locales'], ['tes.ppi', '📈 Ver PPI']]
+    .filter(([f]) => hubEstado(f) === 'a' && !hubVisto(f));
+  if (_pedibles.length) html += `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">${_pedibles.map(([f, t]) =>
+    `<button class="btn-secondary" style="width:auto;border-radius:999px;padding:7px 16px;" onclick="_hubVerEnSaldos('${f}')">🔐 ${t}</button>`).join('')}</div>`;
   // Mostrar total general para admin y oficina
   if (session.verTodo) {
     html += `
@@ -2137,7 +2360,7 @@ async function renderMovimientos() {
       <input type="search" id="mov-buscar" placeholder="🔎 Importe, proveedor, descripción…" value="${escHtml(_movBusca)}" oninput="_movBusca=this.value; filtrarMovsLocal(true);">
       <button class="ibtn" onclick="exportarMovsExcel()" title="Descargar lo filtrado en Excel"><svg class="ico s" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><path d="M8 13l8 6M16 13l-8 6"/></svg></button>
       <button class="ibtn" onclick="exportarMovsPdf()" title="Descargar lo filtrado en PDF"><svg class="ico s" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M9 17v-5h2a1.5 1.5 0 0 1 0 3H9"/></svg></button>
-      <button class="ibtn primary" onclick="cambiarTab('cargar')" title="Cargar un movimiento a mano (ingreso, egreso o transferencia)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+      ${_hubTabVisible('cargar') ? `<button class="ibtn primary" onclick="cambiarTab('cargar')" title="Cargar un movimiento a mano (ingreso, egreso o transferencia)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>` : ''}
     </div>
     <div id="mov-lista"><div class="empty"><div class="spinner"></div></div></div>
   `;
@@ -2161,6 +2384,8 @@ async function renderMovimientos() {
       .order('orden_banco', { ascending: false, nullsFirst: false })
       .order('id', { ascending: false });
     if (_movFiltroCuenta) q = q.eq('cuenta_id', _movFiltroCuenta);
+    // (14-nov, Hub) "Todas las cuentas" = las que el Hub deja mirar (la base puede devolver más por el rol)
+    else if (_cuentas.length < _cuentasTodas.length) q = q.in('cuenta_id', _cuentas.map(c => c.id).concat([-1]));
     // (22-oct, JP) antes se cortaba en 500 y no había forma de ver el resto: ahora se traen todos los del rango, de a 1000
     let data = [], error = null;
     for (let i = 0; i < 20; i++) {
@@ -2442,6 +2667,7 @@ function _editRespaldoCambio() {
 }
 
 async function guardarEditMov(id) {
+  if (!(await _hubExigirCorregir(id))) return;   // (14-nov) permisos del Hub
   try {
     const patch = {
       fecha: document.getElementById('em-fecha').value,
@@ -2512,6 +2738,7 @@ async function borrarMov(id) {
   const motivo = prompt('¿Por qué lo anulás? (queda registrado)');
   if (motivo === null) return;
   if (!motivo.trim()) { toast('Hace falta el motivo', true); return; }
+  if (!(await _hubExigirCorregir(id))) return;   // (14-nov) permisos del Hub
   try {
     // Si era transferencia, avisar que queda la pata contraria
     if (m.transferencia_id && !confirm('Este movimiento es parte de una TRANSFERENCIA: la otra pata NO se borra sola.\n¿Borrar igual?')) return;
@@ -2700,12 +2927,12 @@ function renderListaMovimientos(movs, tenencias = []) {
                 </td>`;
                 // Encargada/cajera: sus movimientos manuales SIN firmar se
                 // pueden corregir o borrar; los ya guardados solo se reportan.
-                if (m.origen === 'manual' && !m.firmado_at && !m.controlado) return `<td style="white-space:nowrap;text-align:center;">${btnPdf}
+                if (m.origen === 'manual' && !m.firmado_at && !m.controlado && _puedeCorregirMov(m)) return `<td style="white-space:nowrap;text-align:center;">${btnPdf}
                   <button class="btn-icon" onclick="abrirEditarMov(${m.id})" title="${m.pdf_descargado_at ? 'Corregir — ojo: ya lo imprimiste, el papel dejaría de servir' : 'Corregir este movimiento (todavía no volvió firmado)'}" style="background:none;border:none;cursor:pointer;font-size:13px;padding:2px 3px;opacity:0.6;">✏️</button>
                   <button class="btn-icon" onclick="borrarMov(${m.id})" title="${m.pdf_descargado_at ? 'Anular — ojo: ya lo imprimiste' : 'Anular este movimiento (todavía no volvió firmado)'}" style="background:none;border:none;cursor:pointer;font-size:13px;padding:2px 3px;opacity:0.6;">🗑</button>
                 </td>`;
                 if (m.origen === 'manual') return `<td style="white-space:nowrap;text-align:center;">${btnPdf}
-                  <button class="btn-icon" onclick="reportarProblemaMov(${m.id})" title="${m.firmado_at ? 'Ya volvió firmado y está en el archivero' : 'Administración ya lo controló'}: avisale a administración y ellos lo rechazan" style="background:none;border:none;cursor:pointer;font-size:13px;padding:2px 3px;opacity:0.7;">⚠️</button>
+                  <button class="btn-icon" onclick="reportarProblemaMov(${m.id})" title="${m.firmado_at ? 'Ya volvió firmado y está en el archivero' : m.controlado ? 'Administración ya lo controló' : 'Tu usuario no corrige ni anula comprobantes (permisos del Hub)'}: avisale a administración${m.controlado || m.firmado_at ? ' y ellos lo rechazan' : ''}" style="background:none;border:none;cursor:pointer;font-size:13px;padding:2px 3px;opacity:0.7;">⚠️</button>
                 </td>`;
                 return '<td></td>';
               })()}
@@ -2756,23 +2983,21 @@ async function abrirRespaldo(a, ev) {
 function renderCargar() {
   const cont = document.getElementById('contenido');
   if (session.soloComprobantes) return renderCargarComprobante();
-  // "Gerente restringido" = gerente de un local físico (no oficina ni admin)
-  // "Gerente restringido" = cualquiera de local (encargada o cajera), no Oficina
-  const esGerente = !session.esOficina;
-  // Para gerente: pre-seleccionar la caja DE SU LOCAL (no la primera del array).
-  // Bug histórico: sin el filtro c.local === session.localGerencia, agarraba
-  // "Caja Alcorta" para TODOS los gerentes por orden alfabético, y la policy
-  // tm_gerente_egreso rechazaba el INSERT porque el local no coincidía.
-  const cajaGerente = esGerente
-    ? (_cuentas.find(c => c.tipo === 'caja' && c.local === session.localGerencia)
-       || _cuentas.find(c => c.tipo === 'caja'))  // cajera: su única caja visible
-    // (11-ago, pedido Marisa) Oficina: preseleccionar Caja Oficina — antes
-    // quedaba la primera del array (Caja Alcorta) y cargaban ahí por error.
-    : (_cuentas.find(c => c.tipo === 'caja' && c.local === 'oficina') || null);
-  const cuentasOpt = _cuentas.map(c => {
+  // (14-nov, Hub) Cuentas que puede OPERAR: las cajas de sus locales, las de otros locales (tes.operar_otros_locales),
+  // bancos y Mercado Pago (tes.bancos), PPI (tes.ppi). "De local" (encargada, cajera) = sin bancos ni otros locales:
+  // la caja queda fija y no hay transferencias. Antes era "no es Oficina".
+  const ops = _cuentasTodas.filter(_cuentaOperable);
+  const esGerente = !hubVe('tes.bancos') && !hubVe('tes.operar_otros_locales');
+  // Preseleccionar la caja del local en el que trabaja (Oficina: la Caja Oficina, pedido Marisa 11-ago).
+  // Bug histórico: sin el filtro por local agarraba "Caja Alcorta" para todos y la base rechazaba el insert.
+  const cajaGerente = ops.find(c => c.tipo === 'caja' && c.local === session.localTrabajo)
+    || (esGerente ? ops.find(c => c.tipo === 'caja') : null);
+  const cuentasOpt = ops.map(c => {
     const sel = cajaGerente && c.id === cajaGerente.id ? 'selected' : '';
     return `<option value="${c.id}" ${sel}>${escHtml(c.nombre)} (${c.moneda})</option>`;
   }).join('');
+  const puedeIng = hubVe('tes.ingreso'), puedeTr = hubVe('tes.transferir');
+  const puedeEgr = ['tes.comprobante', 'tes.recibo', 'tes.bancos'].some(hubVe);
 
   cont.innerHTML = `
     <div class="card" style="max-width:680px;margin:0 auto;">
@@ -2782,9 +3007,9 @@ function renderCargar() {
       <div class="form-row" style="margin-bottom:10px;">
         <label>Tipo</label>
         <div style="display:flex;gap:8px;">
-          <button onclick="setTipoCarga('ingreso')" id="ti-ingreso" class="btn-secondary" style="flex:1;">⬆ Ingreso</button>
-          <button onclick="setTipoCarga('egreso')" id="ti-egreso" class="btn-secondary" style="flex:1;">⬇ Egreso</button>
-          ${esGerente ? '' : '<button onclick="setTipoCarga(\'transferencia\')" id="ti-trans" class="btn-secondary" style="flex:1;">🔄 Transferencia</button>'}
+          ${puedeIng ? '<button onclick="setTipoCarga(\'ingreso\')" id="ti-ingreso" class="btn-secondary" style="flex:1;">⬆ Ingreso</button>' : ''}
+          ${puedeEgr ? '<button onclick="setTipoCarga(\'egreso\')" id="ti-egreso" class="btn-secondary" style="flex:1;">⬇ Egreso</button>' : ''}
+          ${puedeTr ? '<button onclick="setTipoCarga(\'transferencia\')" id="ti-trans" class="btn-secondary" style="flex:1;">🔄 Transferencia</button>' : ''}
         </div>
       </div>
       <div id="form-fields">
@@ -2815,10 +3040,10 @@ function renderCargar() {
           <div class="form-row full" id="row-respaldo" style="display:none;">
             <label>Respaldo del egreso</label>
             <div style="display:flex;gap:8px;">
-              <button type="button" id="resp-recibo" class="btn-secondary" style="flex:1;" onclick="setRespaldo('recibo')">🧾 Recibo firmado</button>
-              <button type="button" id="resp-factura" class="btn-secondary" style="flex:1;" onclick="setRespaldo('factura')">🧺 Factura / ticket</button>
-              <button type="button" id="resp-deposito" class="btn-secondary" style="flex:1;" onclick="setRespaldo('deposito')">🏦 Depósito bancario</button>
-              ${session.esOficina ? `<button type="button" id="resp-ninguno" class="btn-secondary" style="flex:1;" onclick="setRespaldo('ninguno')" title="Egreso bancario / sin comprobante a firmar">∅ Sin respaldo</button>` : ''}
+              ${hubVe('tes.recibo') ? `<button type="button" id="resp-recibo" class="btn-secondary" style="flex:1;" onclick="setRespaldo('recibo')">🧾 Recibo firmado</button>` : ''}
+              ${hubVe('tes.comprobante') ? `<button type="button" id="resp-factura" class="btn-secondary" style="flex:1;" onclick="setRespaldo('factura')">🧺 Factura / ticket</button>
+              <button type="button" id="resp-deposito" class="btn-secondary" style="flex:1;" onclick="setRespaldo('deposito')">🏦 Depósito bancario</button>` : ''}
+              ${hubVe('tes.bancos') ? `<button type="button" id="resp-ninguno" class="btn-secondary" style="flex:1;" onclick="setRespaldo('ninguno')" title="Egreso bancario / sin comprobante a firmar">∅ Sin respaldo</button>` : ''}
             </div>
           </div>
           <div class="form-row full" id="row-factura" style="display:none;">
@@ -2829,21 +3054,22 @@ function renderCargar() {
               <span id="aviso-adjunto">📁 La factura queda archivada sola en el OneDrive, en CONTABILIZAR › 1 - SIN CONTABILIZAR, para que administración la contabilice.</span>
             </div>
           </div>
-          ${esGerente ? `
+          ${(esGerente && hubVe('tes.recibo')) ? `
             <div class="form-row full" style="background:#fef3c7;padding:10px 12px;border-radius:6px;font-size:12px;color:#92400e;">
               📝 Los egresos que cargues quedan pendientes hasta que firmes el PDF y lo envíes por mail.
             </div>
           ` : ''}
         </div>
         <div class="form-actions">
-          <button class="btn-secondary" onclick="cambiarTab('dashboard')">Cancelar</button>
+          ${_hubTabVisible('dashboard') ? `<button class="btn-secondary" onclick="cambiarTab('dashboard')">Cancelar</button>` : ''}
           <button class="btn-primary" style="width:auto;padding:9px 24px;" id="btn-guardar" onclick="guardarMovimiento()">💾 Guardar</button>
         </div>
       </div>
     </div>
   `;
-  // Por default, tipo = egreso (es lo más común que carga la encargada)
-  setTipoCarga(esGerente ? 'egreso' : 'ingreso');
+  // Por default: la encargada carga egresos; Oficina, ingresos (lo que el Hub le deje)
+  setTipoCarga(esGerente ? (puedeEgr ? 'egreso' : puedeIng ? 'ingreso' : 'transferencia')
+                         : (puedeIng ? 'ingreso' : puedeEgr ? 'egreso' : 'transferencia'));
 }
 
 // (9-sep, JP) Formulario acotado para vendedoras y usuarios genéricos de local:
@@ -2851,19 +3077,28 @@ function renderCargar() {
 // recibo firmado (eso queda para cajeras/encargadas), sin ingresos ni transfer.
 async function renderCargarComprobante() {
   const cont = document.getElementById('contenido');
-  let caja = session.miCaja || _cuentas.find(c => c.tipo === 'caja' && c.local === session.localGerencia);
+  // (14-nov) la caja del local en el que trabaja (con varios locales, el que eligió arriba)
+  let caja = _cuentasTodas.find(c => c.tipo === 'caja' && c.local === session.localTrabajo)
+    || (session.miCaja && (!session.localTrabajo || session.miCaja.local === session.localTrabajo) ? session.miCaja : null);
+  if (!caja && session.localTrabajo) {   // (14-nov) varios locales: la caja del que eligió (sin leer saldos)
+    const { data } = await sb.rpc('tesoreria_hub_mis_cajas');
+    caja = (data || []).find(c => c.local === session.localTrabajo) || null;
+  }
+  if (!caja) caja = session.miCaja || _cuentasTodas.find(c => c.tipo === 'caja' && c.local === session.localGerencia);
   if (!caja) {
     const { data } = await sb.rpc('tesoreria_mi_caja');
     caja = Array.isArray(data) ? data[0] : data;
     if (caja) session.miCaja = caja;
   }
   if (!caja) { cont.innerHTML = '<div class="empty">No encuentro la caja de tu local. Avisale a JP.</div>'; return; }
-  const conRecibo = !!session.esGenerico;   // (11-nov) la cuenta del local también hace recibos, con autorización
+  // (11-nov) la cuenta del local también hace recibos, con autorización · (14-nov) lo decide el Hub: «Hacer un recibo»
+  const conRecibo = hubVe('tes.recibo'), conComp = hubVe('tes.comprobante');
+  const reciboAut = hubEstado('tes.recibo') === 'a';
   cont.innerHTML = `
     <div class="card" style="max-width:680px;margin:0 auto;">
       <h3 class="card-title" style="margin:0 0 6px;">${conRecibo ? '🧾 Comprobantes' : '🧺 Subir comprobante'} · ${escHtml(caja.nombre)}</h3>
       <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">${conRecibo
-        ? 'Salió plata de la caja: elegí el comprobante. 🧾 Recibo firmado: sale un PDF para firmar y lo tiene que autorizar la encargada o la cajera. 🧺 Factura / ticket o 🏦 depósito: sacale foto. Se descuenta de la caja y va a administración.'
+        ? 'Salió plata de la caja: elegí el comprobante. 🧾 Recibo firmado: sale un PDF para firmar' + (reciboAut ? ' y lo tiene que autorizar alguien con permiso (la encargada o la cajera)' : '') + '.' + (conComp ? ' 🧺 Factura / ticket o 🏦 depósito: sacale foto.' : '') + ' Se descuenta de la caja y va a administración.'
         : 'Pagaste algo con plata de la caja: cargá el importe y sacale foto a la factura/ticket, o al comprobante si fue un depósito bancario. Se descuenta de la caja y va a administración.'}</div>
       <div id="form-fields">
         <div class="form-grid compacta">
@@ -2879,13 +3114,13 @@ async function renderCargarComprobante() {
           <div class="form-row full" id="row-respaldo">
             <label>Tipo de comprobante</label>
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
-              ${conRecibo ? `<button type="button" id="resp-recibo" class="btn-secondary" style="flex:1;" onclick="setRespaldo('recibo')" title="Lo autoriza la encargada o la cajera">🧾 Recibo firmado</button>` : ''}
-              <button type="button" id="resp-factura" class="btn-secondary" style="flex:1;" onclick="setRespaldo('factura')">🧺 Factura / ticket</button>
-              <button type="button" id="resp-deposito" class="btn-secondary" style="flex:1;" onclick="setRespaldo('deposito')">🏦 Depósito bancario</button>
+              ${conRecibo ? `<button type="button" id="resp-recibo" class="btn-secondary" style="flex:1;" onclick="setRespaldo('recibo')"${reciboAut ? ' title="Lo autoriza alguien con permiso en el Hub (la encargada o la cajera)"' : ''}>🧾 Recibo firmado</button>` : ''}
+              ${conComp ? `<button type="button" id="resp-factura" class="btn-secondary" style="flex:1;" onclick="setRespaldo('factura')">🧺 Factura / ticket</button>
+              <button type="button" id="resp-deposito" class="btn-secondary" style="flex:1;" onclick="setRespaldo('deposito')">🏦 Depósito bancario</button>` : ''}
             </div>
           </div>
-          ${conRecibo ? `<div class="form-row full" id="row-aut-aviso" style="display:none;background:#fef3c7;padding:10px 14px;border-radius:18px;font-size:12px;color:#92400e;line-height:1.5;">
-            🔐 <b>El recibo lo autoriza la encargada o la cajera del local.</b> Al tocar <b>Emitir recibo</b>: primero que mire a la cámara; si no está en el local, le llega un aviso al celu para aceptar; y si no, puede poner acá su usuario y clave. Después se baja el PDF para firmar.
+          ${(conRecibo && reciboAut) ? `<div class="form-row full" id="row-aut-aviso" style="display:none;background:#fef3c7;padding:10px 14px;border-radius:18px;font-size:12px;color:#92400e;line-height:1.5;">
+            🔐 <b>El recibo lo autoriza la encargada o la cajera del local</b> (quien tenga «Hacer un recibo» habilitado en el Hub). Al tocar <b>Emitir recibo</b>: ${session.carasActivas ? 'primero que mire a la cámara; si no está en el local, ' : 'si no está en el local, '}le llega un aviso al celu para aceptar; y si no, puede poner acá su usuario y clave. Después se baja el PDF para firmar.
           </div>` : ''}
           <div class="form-row full" id="row-factura">
             <label id="lbl-adjunto">Foto o PDF de la factura</label>
@@ -2905,7 +3140,7 @@ async function renderCargarComprobante() {
   const lista = _categorias.filter(c => c.tipo === 'egreso' && !c.rrhh_eventual_id);
   document.getElementById('f-categoria').innerHTML = '<option value="">— Elegir —</option>' +
     lista.map(c => `<option value="${c.id}">${c.icono || ''} ${escHtml(c.nombre)}</option>`).join('');
-  setRespaldo('factura');
+  setRespaldo(conComp ? 'factura' : 'recibo');
   renderMisComprobantes();
 }
 
@@ -2915,7 +3150,7 @@ async function renderMisComprobantes() {
   if (!box) return;
   const { data: movs, error } = await sb.from('tesoreria_movimientos')
     .select('id,fecha,importe,descripcion,respaldo_tipo,factura_path,archivo_carpeta,respaldo_rechazado_at,respaldo_rechazo_motivo,categoria_id,cuenta_id,origen,firmado_at,codigo_seguimiento,pdf_descargado_at,firma_rechazada_at,firma_rechazo_motivo,extra')
-    .in('respaldo_tipo', session.esGenerico ? ['factura', 'deposito', 'recibo'] : ['factura', 'deposito'])   // (11-nov) + recibos de la cuenta del local
+    .in('respaldo_tipo', hubVe('tes.recibo') ? ['factura', 'deposito', 'recibo'] : ['factura', 'deposito'])   // (11-nov) + recibos de la cuenta del local · (14-nov) quien haga recibos según el Hub
     .ilike('cargado_por', session.email || '')
     .order('fecha', { ascending: false }).order('id', { ascending: false }).limit(20);
   if (error) { box.innerHTML = `<div class="empty">Error: ${escHtml(error.message)}</div>`; return; }
@@ -2934,7 +3169,7 @@ async function renderMisComprobantes() {
              : m.pdf_descargado_at ? `<span style="color:#92400e;">✍ Falta que vuelva firmado</span><div>${btnPdfRec}</div>`
              : `<span style="color:#92400e;font-weight:600;">📄 Falta bajar el PDF</span><div>${btnPdfRec}</div>`)
           : rech
-          ? `<span style="color:#dc2626;font-weight:600;">↩ Rechazado</span><div style="font-size:11px;color:#991b1b;">${escHtml(m.respaldo_rechazo_motivo || '')}</div><button class="btn-secondary" style="font-size:11px;padding:3px 8px;margin-top:4px;" onclick="abrirEditarMov(${m.id})">📎 Volver a subir</button>`
+          ? `<span style="color:#dc2626;font-weight:600;">↩ Rechazado</span><div style="font-size:11px;color:#991b1b;">${escHtml(m.respaldo_rechazo_motivo || '')}</div>${hubVe('tes.corregir_anular') ? `<button class="btn-secondary" style="font-size:11px;padding:3px 8px;margin-top:4px;" onclick="abrirEditarMov(${m.id})">📎 Volver a subir</button>` : ''}`
           : m.archivo_carpeta ? `<span style="color:#065f46;">📁 ${escHtml(m.archivo_carpeta.split('/').pop())}</span>`
           : m.factura_path ? '<span style="color:var(--muted);">⏳ Enviando…</span>' : '—';
         return `<tr>
@@ -2952,26 +3187,36 @@ let _respaldoCarga = 'recibo';
 // (9-sep) Default del respaldo según la cuenta: en una CAJA (local u oficina)
 // el egreso lleva recibo firmado, incluso si lo carga admin/Oficina; en banco/MP
 // el grupo Oficina carga sin respaldo. Las encargadas nunca ven "Sin respaldo".
+// (14-nov, Hub) respaldos que puede usar: recibo (tes.recibo), factura y depósito (tes.comprobante), "sin respaldo"
+// (tes.bancos: lo de administración). Antes: "sin respaldo" solo Oficina, recibo no para vendedoras.
+function _respaldosPermitidos() {
+  const p = [];
+  if (hubVe('tes.recibo')) p.push('recibo');
+  if (hubVe('tes.comprobante')) p.push('factura', 'deposito');
+  if (!session.soloComprobantes && hubVe('tes.bancos')) p.push('ninguno');
+  return p;
+}
+// En una caja el egreso lleva recibo; en banco/MP, Oficina carga sin respaldo
 function _defaultRespaldo() {
-  if (!session.esOficina) return 'recibo';
+  const p = _respaldosPermitidos();
   const cid = parseInt(document.getElementById('f-cuenta')?.value);
-  const c = _cuentas.find(x => x.id === cid);
-  return (c && c.tipo === 'caja') ? 'recibo' : 'ninguno';
+  const c = _cuentasTodas.find(x => x.id === cid);
+  const pref = (c && c.tipo !== 'caja' && p.includes('ninguno')) ? 'ninguno' : 'recibo';
+  return p.includes(pref) ? pref : (p[0] || 'factura');
 }
 function setRespaldo(r) {
   // 4 respaldos posibles: recibo firmado (circuito de siempre, PDF con QR),
-  // factura/ticket y depósito (van al OneDrive), y "ninguno" (solo Oficina).
-  if (r === 'ninguno' && !session.esOficina) r = 'recibo';
-  // vendedoras: sin recibo · (11-nov) la cuenta genérica del local sí, con autorización de la encargada o la cajera
-  if (session.soloComprobantes && r !== 'deposito' && !(r === 'recibo' && session.esGenerico)) r = 'factura';
+  // factura/ticket y depósito (van al OneDrive), y "ninguno". Cuáles, lo dice el Hub.
+  const permitidos = _respaldosPermitidos();
+  if (!permitidos.includes(r)) r = permitidos[0] || 'factura';
   _respaldoCarga = r;
   const avisoAut = document.getElementById('row-aut-aviso');
   if (avisoAut) avisoAut.style.display = r === 'recibo' ? '' : 'none';
   // la librería de caras pesa (~7 MB la 1ª vez): se empieza a bajar apenas eligen recibo, para que la cámara abra rápido
-  if (r === 'recibo' && session.esGenerico && navigator.mediaDevices && typeof _raLib === 'function') _raLib().catch(() => {});
+  if (r === 'recibo' && session.esGenerico && session.carasActivas && hubEstado('tes.recibo') === 'a' && navigator.mediaDevices && typeof _raLib === 'function') _raLib().catch(() => {});
   if (session.soloComprobantes) {
     const bg = document.getElementById('btn-guardar');
-    if (bg && !bg.disabled) bg.textContent = r === 'recibo' ? '🔐 Emitir recibo' : '💾 Guardar';
+    if (bg && !bg.disabled) bg.textContent = (r === 'recibo' && hubEstado('tes.recibo') === 'a') ? '🔐 Emitir recibo' : '💾 Guardar';
   }
   [['resp-recibo','recibo'],['resp-factura','factura'],['resp-deposito','deposito'],['resp-ninguno','ninguno']].forEach(([id,val]) => {
     const b = document.getElementById(id);
@@ -2991,21 +3236,13 @@ function setTipoCarga(tipo) {
   document.querySelectorAll('#ti-ingreso, #ti-egreso, #ti-trans').forEach(b => {
     b.style.background = ''; b.style.color = ''; b.style.borderColor = '';
   });
-  if (tipo === 'ingreso') {
-    document.getElementById('ti-ingreso').style.background = 'var(--green-bg)';
-    document.getElementById('ti-ingreso').style.color = '#065f46';
-    document.getElementById('ti-ingreso').style.borderColor = '#a7f3d0';
-  } else if (tipo === 'egreso') {
-    document.getElementById('ti-egreso').style.background = 'var(--red-bg)';
-    document.getElementById('ti-egreso').style.color = '#991b1b';
-    document.getElementById('ti-egreso').style.borderColor = '#fca5a5';
-  } else {
-    document.getElementById('ti-trans').style.background = '#fef3c7';
-    document.getElementById('ti-trans').style.color = '#92400e';
-    document.getElementById('ti-trans').style.borderColor = '#fcd34d';
-  }
+  // (14-nov) cada botón aparece solo si el Hub lo deja: se pinta el que exista
+  const _pinta = (id, bg, col, bor) => { const b = document.getElementById(id); if (b) { b.style.background = bg; b.style.color = col; b.style.borderColor = bor; } };
+  if (tipo === 'ingreso') _pinta('ti-ingreso', 'var(--green-bg)', '#065f46', '#a7f3d0');
+  else if (tipo === 'egreso') _pinta('ti-egreso', 'var(--red-bg)', '#991b1b', '#fca5a5');
+  else _pinta('ti-trans', '#fef3c7', '#92400e', '#fcd34d');
   // Mostrar/ocultar cuenta destino
-  document.getElementById('row-cuenta-destino').style.display = tipo === 'transferencia' ? '' : 'none';
+  { const rd = document.getElementById('row-cuenta-destino'); if (rd) rd.style.display = tipo === 'transferencia' ? '' : 'none'; }
   // Respaldo: solo aplica a egresos de gerentes/cajeras de local
   // (oficina y admin cargan sin recibo — pero pueden adjuntar factura igual)
   const rowResp = document.getElementById('row-respaldo');
@@ -3304,6 +3541,21 @@ async function guardarMovimiento() {
     toast('Completá la descripción / observación del movimiento', true);
     document.getElementById('f-descripcion').focus(); return;
   }
+  // (14-nov, Hub) Recibo de la cuenta del local en "Pide permiso": su propio circuito (cara → celu → clave), más abajo.
+  // Todo lo demás: 'o' frena, 'a' pide el usuario de un superior, 'h' sigue (la base chequea lo mismo).
+  const _recLocal = _tipoCarga === 'egreso' && _respaldoCarga === 'recibo' && session.esGenerico && hubEstado('tes.recibo') === 'a';
+  if (!_recLocal) {
+    const c1 = _cuentaDeMov({ cuenta_id: cuentaId });
+    let funcs, loc = null;
+    if (_tipoCarga === 'transferencia') {
+      const c2 = _cuentaDeMov({ cuenta_id: parseInt(document.getElementById('f-cuenta-destino')?.value) });
+      funcs = ['tes.transferir', ..._hubFuncsCuenta(c1), ..._hubFuncsCuenta(c2)];
+    } else {
+      funcs = [_hubFuncMov(_tipoCarga === 'ingreso' ? 1 : -1, _respaldoCarga), ..._hubFuncsCuenta(c1)];
+      loc = _hubLocalDe(c1);
+    }
+    if (!(await hubExigir(funcs, loc, 'cargar este movimiento'))) return;
+  }
 
   btn.disabled = true; btn.textContent = 'Guardando…';
   try {
@@ -3332,7 +3584,7 @@ async function guardarMovimiento() {
       }
       // (11-nov, JP) Recibo desde la cuenta genérica del local: lo autoriza la encargada o la cajera
       // (cara → aviso al celu → usuario y clave) y la base lo graba con lo que se autorizó.
-      if (_tipoCarga === 'egreso' && _respaldoCarga === 'recibo' && session.esGenerico) {
+      if (_recLocal) {
         btn.textContent = 'Esperando autorización…';
         const autId = await autorizarRecibo({ fecha, cuenta_id: cuentaId, categoria_id: categoriaId, importe: importeAbs, descripcion: desc });
         if (!autId) { btn.disabled = false; btn.textContent = '🔐 Emitir recibo'; return; }
@@ -3391,7 +3643,7 @@ async function guardarMovimiento() {
     cargar();
   } catch (e) {
     toast('Error: ' + e.message, true);
-    btn.disabled = false; btn.textContent = (session.esGenerico && _respaldoCarga === 'recibo') ? '🔐 Emitir recibo' : '💾 Guardar';
+    btn.disabled = false; btn.textContent = _recLocal ? '🔐 Emitir recibo' : '💾 Guardar';
   }
 }
 
@@ -3400,7 +3652,7 @@ async function guardarMovimiento() {
 // ═══════════════════════════════════════════════════════════════════════
 async function renderScrapers() {
   const cont = document.getElementById('contenido');
-  if (!session.esOficina) { cont.innerHTML = '<div class="empty">Solo Oficina</div>'; return; }
+  if (!hubVe('tes.bots')) { cont.innerHTML = '<div class="empty">Tu usuario no ve los bots (permisos del Hub)</div>'; return; }
   cont.innerHTML = '<div class="empty"><div class="spinner"></div></div>';
   // RPC sin credenciales (11-ago): el grupo Oficina ve estado y ejecuta,
   // la tabla real (con usuario/contraseña del banco) sigue siendo solo admin.
@@ -3439,6 +3691,7 @@ async function ejecutarScraperAhora(id, nombre) {
   // Marca el scraper como "vencido" (proximo_run en el pasado). El servicio
   // main.py corriendo en loop en la PC lo detecta en el próximo polling
   // (cada POLL_SECONDS, default 5 min) y lo ejecuta.
+  if (!(await hubExigir(['tes.bots']))) return;   // (14-nov) permisos del Hub
   try {
     const { data: ok, error } = await sb.rpc('tesoreria_bot_ejecutar', { p_id: id });
     if (error) throw error;
@@ -4030,6 +4283,7 @@ async function confirmarMatchPago(id, movimientoId) {
   } catch (e) { alert('Error: ' + e.message); }
 }
 async function rechazarMatchPago(id) {
+  if (!(await hubExigir(['tes.pagos_pendientes']))) return;   // (14-nov) permisos del Hub
   try {
     const { error } = await sb.from('tesoreria_pagos_pendientes')
       .update({ estado: 'pendiente', movimiento_id: null }).eq('id', id);
@@ -4053,6 +4307,7 @@ async function marcarComoPagado(id) {
 // (4-nov-2026, JP para Marisa) Mercadería pagada por adelanto: al llegar se tilda y recién ahí sale de
 // Pendientes (queda quién y cuándo). Con llego=false se deshace (vuelve a esperar la mercadería).
 async function marcarEntregado(id, llego) {
+  if (!(await hubExigir(['tes.pagos_pendientes']))) return;   // (14-nov) permisos del Hub
   const p = _pagosPendientesCache.find(x => x.id === id) || {};
   const msg = llego
     ? `¿Llegó la mercadería?\n\n${p.concepto || '#' + id}\n\n${p.estado === 'pagado' ? 'Sale de Pendientes y queda registrado quién lo marcó.' : 'Queda registrado. El pago sigue pendiente hasta que se pague.'}`
@@ -4071,6 +4326,7 @@ async function marcarEntregado(id, llego) {
 // (25-sep) "CUOTA 3 DE 6" → 3
 function _cuotaNro(c) { const m = /CUOTA\s+(\d+)\s+DE\s+\d+\s*$/i.exec(c || ''); return m ? +m[1] : null; }
 async function cancelarPago(id) {
+  if (!(await hubExigir(['tes.pagos_pendientes']))) return;   // (14-nov) permisos del Hub
   const p = _pagosPendientesCache.find(x => x.id === id) || {};
   if (!confirm(p.estado === 'parcial' ? `¿Cancelar lo que falta de este pago?\n\nYa se pagaron ${fmtMoneda(p.importe_pagado, p.moneda)}; las partes abiertas se cancelan y eso queda registrado.` : '¿Cancelar este pago?')) return;
   let ids = [id];
@@ -4090,6 +4346,7 @@ async function cancelarPago(id) {
 }
 function abrirFormNuevoPago(precarga) { abrirFormPago(null, precarga); }
 async function volverAPendiente(id) {
+  if (!(await hubExigir(['tes.pagos_pendientes']))) return;   // (14-nov) permisos del Hub
   const p = _pagosPendientesCache.find(x => x.id === id);
   if (!confirm(`¿Volver a PENDIENTE este pago?\n\n${p ? p.concepto : '#' + id}\n\nSe deshace la marca de pagado y se desengancha del movimiento del banco. Queda registrado quién lo deshizo.`)) return;
   const { error } = await sb.rpc('tesoreria_volver_a_pendiente', { p_id: id });
@@ -4389,6 +4646,7 @@ function _partesNuevoReescalar() {
   _partesFormRender(null, 0, 'ARS');
 }
 async function guardarPartes(id, falta) {
+  if (!(await hubExigir(['tes.pagos_pendientes']))) return;   // (14-nov) permisos del Hub
   const partes = _partesEdit.map(r => ({ concepto: (r.concepto || '').trim(), importe: +r.importe || 0, fecha: r.fecha }));
   if (!partes.length) return alert('Agregá al menos una parte.');
   if (partes.some(r => r.importe <= 0)) return alert('Cada parte necesita un importe mayor a cero.');
@@ -4426,6 +4684,7 @@ function registrarParte(parteId, padreId) {
   document.getElementById('fp-importe')?.focus();
 }
 async function guardarRegistroParte(parteId, padreId) {
+  if (!(await hubExigir(['tes.pagos_pendientes']))) return;   // (14-nov) permisos del Hub
   const importe = nmParse(document.getElementById('fp-importe').value);
   const fecha = document.getElementById('fp-fecha').value;
   const ultimo = document.getElementById('fp-ultimo').checked;
@@ -4442,6 +4701,7 @@ async function confirmarParte(parteId, movimientoId, padreId) {
   toast('✓ Confirmado'); _reabrirFicha(padreId);
 }
 async function volverParte(parteId, padreId) {
+  if (!(await hubExigir(['tes.pagos_pendientes']))) return;   // (14-nov) permisos del Hub
   if (!confirm('¿Deshacer este pago? La parte vuelve a "a pagar" y el pendiente vuelve a quedar en partes.')) return;
   const { error } = await sb.rpc('tesoreria_volver_a_pendiente', { p_id: parteId });
   if (error) return alert('No se pudo: ' + error.message);
@@ -4559,6 +4819,7 @@ function elegirProveedor(valor) {
 }
 
 async function nuevoProveedorManual() {
+  if (!(await hubExigir(['tes.pagos_pendientes']))) return;   // (14-nov) permisos del Hub
   const nombre = prompt('Nombre / razón social del proveedor nuevo:');
   if (!nombre) return;
   const cuit = (prompt('CUIT (opcional, mejora el match automático de pagos):') || '').replace(/\D/g, '');
@@ -4695,6 +4956,7 @@ async function elegirLocalPago(v) {
 }
 
 async function guardarPago(id) {
+  if (!(await hubExigir(['tes.pagos_pendientes']))) return;   // (14-nov) permisos del Hub
   const concepto = document.getElementById('f-concepto').value.trim();
   const destinatario = document.getElementById('f-destinatario').value.trim() || null;
   const importe = nmParse(document.getElementById('f-importe').value);
@@ -4900,7 +5162,7 @@ if ('serviceWorker' in navigator) {
   }, true);
 })();
 </script>
-<script src="manual.js?v=44"></script>
+<script src="manual.js?v=45"></script>
 <script>
 // (24-ago) Blindaje iOS: re-suscripcion automatica de push. iOS suelta la
 // suscripcion silenciosamente cada tanto; si el permiso sigue concedido y
