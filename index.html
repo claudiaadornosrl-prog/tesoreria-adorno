@@ -842,8 +842,21 @@ function pathToSharepointUrl(path) {
 }
 const SUPA_KEY = 'sb_publishable_udSPma98Sw9eskeeLCgdCw_S2vIX0Fk';
 ADORNO_SSO.migrar('tesoreria-adorno-auth', 'tesoreria');
+// (15-nov, Hub) «Pide permiso» = UNA operación por autorización: mientras dura una operación autorizada, cada
+// pedido a la base lleva el número de la autorización (header x-tes-autorizacion); la base la consume al grabar
+// (sql/12). window._tesAut lo pone hubExigir y lo cambia la próxima operación.
+window._tesAut = null;
+function _fetchConAutorizacion(url, opts) {
+  if (window._tesAut && String(url).indexOf('/rest/v1/') >= 0) {
+    const h = new Headers((opts && opts.headers) || {});
+    h.set('x-tes-autorizacion', window._tesAut);
+    opts = Object.assign({}, opts, { headers: h });
+  }
+  return fetch(url, opts);
+}
 const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY, {
-  auth: { persistSession: true, autoRefreshToken: true, storageKey: ADORNO_SSO.KEY }
+  auth: { persistSession: true, autoRefreshToken: true, storageKey: ADORNO_SSO.KEY },
+  global: { fetch: _fetchConAutorizacion }
 });
 
 // (SSO) Envolver login/logout una sola vez cubre todas las pantallas del
@@ -1131,7 +1144,7 @@ const _LOCAL_NOM = { alcorta: 'Alcorta', unicenter: 'Unicenter', oficina: 'Ofici
 function _localNombre(l) { return _LOCAL_NOM[String(l || '').toLowerCase()] || (l ? String(l) : ''); }
 
 async function cargarPermisosHub() {
-  session.hub = {}; session.hubVistos = {}; session.hubAut = {};
+  session.hub = {}; session.hubVistos = {}; window._tesAut = null;
   try {
     const rs = await Promise.all(HUB_FUNCIONES.map(f => sb.rpc('hub_puedo', { p_funcion: f })));
     const mal = rs.find(r => r.error); if (mal) throw mal.error;
@@ -1152,7 +1165,9 @@ async function cargarPermisosHub() {
   if (!session.locales.length && lg) session.locales = [lg];
   // Formulario simple (solo comprobantes / recibos de su caja) para quien no carga ingresos, ni transfiere, ni opera bancos.
   // Es lo que antes era "vendedora o cuenta del local"; ahora sale del Hub.
-  if (!session.hubFallo) session.soloComprobantes = !hubVe('tes.ingreso') && !hubVe('tes.transferir') && !hubVe('tes.bancos');
+  // (15-nov) La cuenta del local sigue con su formulario aunque cargue ingresos (en el Hub, «Cargar un ingreso» en Pide
+  // permiso): ahí está "Mis comprobantes" con sus recibos y el PDF. El ingreso se agrega como botón en ese formulario.
+  if (!session.hubFallo) session.soloComprobantes = !hubVe('tes.transferir') && !hubVe('tes.bancos') && (!hubVe('tes.ingreso') || !!session.esGenerico);
 }
 function hubEstado(f) { return (session && session.hub && session.hub[f]) || 'o'; }
 function hubVe(f) { return hubEstado(f) !== 'o'; }
@@ -1216,17 +1231,22 @@ function _hubFuncMov(importe, respaldo) {
 }
 function _hubLocalDe(c) { return c && c.tipo === 'caja' ? String(c.local || '').toLowerCase() : null; }
 
-// Antes de grabar: 'o' frena · 'a' pide el usuario de un superior · 'h' sigue. Una autorización vale 4 minutos acá
-// (la base la acepta 5), así un mismo trámite con varios pasos no la pide de nuevo en cada uno.
+// Antes de grabar: 'o' frena · 'a' pide el usuario de un superior · 'h' sigue.
+// (15-nov, JP) Cada permiso vale para UNA operación: se pide en cada una (no se reusa) y los pedidos de esa operación
+// llevan su número; la base lo ata al comprobante / pago / transferencia que se graba (los pasos de un mismo trámite
+// sobre el mismo objeto pasan; otro objeto, no). Hay que usarlo dentro de los 5 minutos.
 async function hubExigir(funcs, local, que) {
   funcs = [...new Set((funcs || []).filter(Boolean))];
   const no = funcs.find(f => hubEstado(f) === 'o');
   if (no) { toast('Tu usuario no puede ' + (HUB_NOMBRES[no] || no) + ' (permisos del Hub)', true); return false; }
+  window._tesAut = null;   // operación nueva: el permiso de la anterior ya no corre
   const loc = local ? String(local).toLowerCase() : '';
-  const vig = f => { const t = (session.hubAut || {})[f + '|' + loc] || (session.hubAut || {})[f + '|']; return t && Date.now() - t < 4 * 60 * 1000; };
-  const pedir = funcs.filter(f => hubEstado(f) === 'a' && !vig(f));
+  const pedir = funcs.filter(f => hubEstado(f) === 'a');
   if (!pedir.length) return true;
-  return !!(await hubPedirSuperior(pedir, loc || null, que));
+  const r = await hubPedirSuperior(pedir, loc || null, que);
+  if (!r) return false;
+  window._tesAut = (r.ids || []).join(',') || null;
+  return true;
 }
 // Pestaña en "Pide permiso": la tarjeta con el botón para pedirlo
 function _renderPidePermiso(tab) {
@@ -1288,11 +1308,10 @@ function hubPedirSuperior(funcs, local, que) {
         if (eA) throw new Error(eA.message || 'No se pudo autorizar');
         if (!data || !data.ok) throw new Error((data && data.motivo) || 'No se pudo autorizar');
         await salir();
-        const t = Date.now();
-        funcs.forEach(fn => { session.hubAut[fn + '|' + (local || '')] = t; session.hubVistos[fn] = true; });
+        funcs.forEach(fn => { session.hubVistos[fn] = true; });   // para MIRAR alcanza una vez por sesión
         _cuentas = _cuentasTodas.filter(_cuentaVisible);   // lo que ahora se puede mirar
         toast('✓ Autorizó ' + _raPila(data.nombre));
-        cerrar({ nombre: data.nombre });
+        cerrar({ nombre: data.nombre, ids: data.ids || [] });   // ids: los manda hubExigir en la operación
       } catch (e) {
         await salir();
         err.textContent = e.message || String(e);
@@ -3133,10 +3152,16 @@ async function renderCargarComprobante() {
   // (11-nov) la cuenta del local también hace recibos, con autorización · (14-nov) lo decide el Hub: «Hacer un recibo»
   const conRecibo = hubVe('tes.recibo'), conComp = hubVe('tes.comprobante');
   const reciboAut = hubEstado('tes.recibo') === 'a';
+  // (15-nov) con «Cargar un ingreso» en el Hub (la cuenta del local lo tiene en Pide permiso): ⬆ Ingreso / ⬇ Salió plata
+  const conIngreso = hubVe('tes.ingreso');
   cont.innerHTML = `
     <div class="card" style="max-width:680px;margin:0 auto;">
       <h3 class="card-title" style="margin:0 0 6px;">${conRecibo ? '🧾 Comprobantes' : '🧺 Subir comprobante'} · ${escHtml(caja.nombre)}</h3>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">${conRecibo
+      ${conIngreso ? `<div style="display:flex;gap:8px;margin-bottom:10px;">
+        <button type="button" id="ti-egreso" class="btn-secondary" style="flex:1;border-radius:999px;" onclick="_compTipo('egreso')">⬇ Salió plata (comprobante)</button>
+        <button type="button" id="ti-ingreso" class="btn-secondary" style="flex:1;border-radius:999px;" onclick="_compTipo('ingreso')"${hubEstado('tes.ingreso') === 'a' ? ' title="Pide permiso: lo autoriza alguien con permiso en el Hub"' : ''}>⬆ Ingreso a la caja${hubEstado('tes.ingreso') === 'a' ? ' 🔐' : ''}</button>
+      </div>` : ''}
+      <div id="comp-intro" style="font-size:12px;color:var(--muted);margin-bottom:14px;">${conRecibo
         ? 'Salió plata de la caja: elegí el comprobante. 🧾 Recibo firmado: sale un PDF para firmar' + (reciboAut ? ' y lo tiene que autorizar alguien con permiso (la encargada o la cajera)' : '') + '.' + (conComp ? ' 🧺 Factura / ticket o 🏦 depósito: sacale foto.' : '') + ' Se descuenta de la caja y va a administración.'
         : 'Pagaste algo con plata de la caja: cargá el importe y sacale foto a la factura/ticket, o al comprobante si fue un depósito bancario. Se descuenta de la caja y va a administración.'}</div>
       <div id="form-fields">
@@ -3175,12 +3200,36 @@ async function renderCargarComprobante() {
     </div>
     <div class="card" style="max-width:680px;margin:14px auto 0;" id="mis-comprobantes"><div class="empty"><div class="spinner"></div></div></div>
   `;
-  _tipoCarga = 'egreso';
-  const lista = _categorias.filter(c => c.tipo === 'egreso' && !c.rrhh_eventual_id);
+  _compTipo('egreso');
+  renderMisComprobantes();
+}
+// (15-nov) Formulario simple: egreso con comprobante o ingreso a la caja (si el Hub lo deja)
+function _compTipo(tipo) {
+  _tipoCarga = tipo;
+  const lista = _categorias.filter(c => c.tipo === tipo && !c.rrhh_eventual_id);
   document.getElementById('f-categoria').innerHTML = '<option value="">— Elegir —</option>' +
     lista.map(c => `<option value="${c.id}">${c.icono || ''} ${escHtml(c.nombre)}</option>`).join('');
-  setRespaldo(conComp ? 'factura' : 'recibo');
-  renderMisComprobantes();
+  [['ti-egreso', 'egreso', 'var(--red-bg)', '#991b1b', '#fca5a5'], ['ti-ingreso', 'ingreso', 'var(--green-bg)', '#065f46', '#a7f3d0']].forEach(([id, t, bg, col, bor]) => {
+    const b = document.getElementById(id); if (!b) return;
+    const on = t === tipo; b.style.background = on ? bg : ''; b.style.color = on ? col : ''; b.style.borderColor = on ? bor : '';
+  });
+  const esEgr = tipo === 'egreso';
+  ['row-respaldo'].forEach(id => { const e = document.getElementById(id); if (e) e.style.display = esEgr ? '' : 'none'; });
+  const intro = document.getElementById('comp-intro');
+  if (intro) {
+    if (intro.dataset.egreso == null) intro.dataset.egreso = intro.textContent;
+    intro.textContent = esEgr ? intro.dataset.egreso
+      : 'Entró plata a la caja (cambio, reposición, un cobro): cargá el importe, la categoría y de dónde viene. Se suma a la caja.'
+        + (hubEstado('tes.ingreso') === 'a' ? ' 🔐 Pide permiso: al guardar lo autoriza la encargada o la cajera con su usuario y clave.' : '');
+  }
+  const d = document.getElementById('f-descripcion');
+  if (d) d.placeholder = esEgr ? 'Obligatoria: qué se pagó, a quién, número de comprobante…' : 'Obligatoria: de dónde entra la plata (cambio, reposición de caja, cobro…)';
+  if (esEgr) setRespaldo(hubVe('tes.comprobante') ? 'factura' : 'recibo');
+  else {
+    _respaldoCarga = 'recibo';
+    ['row-factura', 'row-aut-aviso'].forEach(id => { const e = document.getElementById(id); if (e) e.style.display = 'none'; });
+    const bg = document.getElementById('btn-guardar'); if (bg && !bg.disabled) bg.textContent = '💾 Guardar';
+  }
 }
 
 // Últimas cargas propias (RLS tm_mis_cargas_read) + estado del archivo
@@ -3692,6 +3741,7 @@ async function guardarMovimiento() {
       }
     }
     toast('✓ Movimiento cargado');
+    if (session.soloComprobantes || !_hubTabVisible('dashboard')) { await cargar(); cambiarTab('cargar'); return; }   // (15-nov) la cuenta del local se queda en Comprobantes
     cambiarTab('dashboard');
     cargar();
   } catch (e) {
@@ -5216,7 +5266,7 @@ if ('serviceWorker' in navigator) {
   }, true);
 })();
 </script>
-<script src="manual.js?v=46"></script>
+<script src="manual.js?v=47"></script>
 <script>
 // (24-ago) Blindaje iOS: re-suscripcion automatica de push. iOS suelta la
 // suscripcion silenciosamente cada tanto; si el permiso sigue concedido y
