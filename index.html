@@ -530,7 +530,7 @@ window.ADORNO_SSO = (function () {
 <script src="/hub/seguridad.js?v=1"></script>
 <script src="/hub/caras.js?v=8" defer></script>
 <!-- (15-nov, JP vía Infra) ventana común de «Pide permiso»: cara (en segundo plano) → aviso al celu → usuario y clave -->
-<script src="/hub/autorizar.js?v=4" defer></script>
+<script src="/hub/autorizar.js?v=6" defer></script>
 <!-- jsPDF + QR para generar comprobantes de egreso -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" integrity="sha384-JcnsjUPPylna1s1fvi1u12X5qjY5OL56iySh75FdtrwhO/SWXgMjoVqcKyIIWOLk" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js" integrity="sha384-lQXOAyZwHXE55JFyrOMB7nY2Wv+m5ZWNtJcHrd1rceRQXAYNLak8ukN5TjBTcIwz" crossorigin="anonymous"></script>
@@ -852,7 +852,7 @@ tbody tr:hover { background: var(--primary-light); }
       <button class="hbtn ab-fijo" onclick="logout()" title="Salir" aria-label="Salir"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg><span class="lb">Salir</span></button>
     </div>
   </div>
-  <script src="/hub/banner.js?v=6"></script>
+  <script src="/hub/banner.js?v=7"></script>
 
   <main id="contenido"><div class="empty"><div class="spinner"></div></div></main>
 </div>
@@ -1028,6 +1028,9 @@ async function doLogin() {
 }
 
 async function logout() {
+  // (16-nov, Infra) «Ver como» (/hub/banner.js v7): Salir vuelve al Hub. Cerrar la sesión acá borraría la de JP en esta PC
+  // (el token es el suyo), y también cuando la cuenta mirada no tiene acceso (initSession llama acá).
+  if (window.ADORNO_VERCOMO) { ADORNO_VERCOMO.salir(); return; }
   await sb.auth.signOut();
   session = null;
   document.getElementById('app-screen').classList.remove('active');
@@ -1043,7 +1046,7 @@ async function initSession() {
     .eq('auth_user_id', user.id)
     .maybeSingle();
   if (!u || !u.activo) {
-    alert('Tu usuario no tiene acceso a Tesorería.');
+    alert(window.ADORNO_VERCOMO ? ADORNO_VERCOMO.nombre + ' no tiene acceso a Tesorería.' : 'Tu usuario no tiene acceso a Tesorería.');
     await logout();
     return false;
   }
@@ -1075,7 +1078,7 @@ async function initSession() {
         const { data: caja } = await sb.rpc('tesoreria_mi_caja');
         const mi = Array.isArray(caja) ? caja[0] : caja;
         if (!mi) {
-          alert('Tu usuario no tiene acceso a Tesorería.');
+          alert(window.ADORNO_VERCOMO ? ADORNO_VERCOMO.nombre + ' no tiene acceso a Tesorería.' : 'Tu usuario no tiene acceso a Tesorería.');
           await logout();
           return false;
         }
@@ -1314,6 +1317,10 @@ async function hubPedirSuperior(funcs, local, que, opts) {
   const l0 = local ? String(local).toLowerCase() : '';
   // el local del pedido es uno de los de esta cuenta (en la caja de otro local, el suyo)
   const loc = (l0 && locs.includes(l0)) ? l0 : (session.localTrabajo || locs[0] || null);
+  // (16-nov, JP: «ver que la parte de pedir permiso esté funcionando bien») en «Ver como» la ventana común se abre igual
+  // (autorizar.js v6: lista real de quién autorizaría a esa cuenta, sin cámara, sin avisos ni clave; al cancelar, null).
+  // La ventana vieja de mail y clave, no: esa sí entra con la clave de otra persona.
+  if (window.ADORNO_VERCOMO && (!window.ADORNO_AUTORIZAR || !ADORNO_AUTORIZAR.pedir || !loc)) { toast('En «Ver como» no se pide permiso: es solo para mirar', true); return null; }
   if (!window.ADORNO_AUTORIZAR || !ADORNO_AUTORIZAR.pedir || !loc) return _hubPedirConClave(funcs, local, que);
   const ids = []; let ult = null;
   // (autorizar.js v4) la sesión de ESTA página, por si en la compu hay otra cuenta abierta en el Hub
@@ -1650,6 +1657,7 @@ async function _hubExigirCorregir(id, accion, extra) {
 // compartida, la cámara (si las caras están prendidas) o tocando su nombre en la lista. No guarda fotos.
 // Devuelve el resultado (r.id si anotó, r.omitido si la función no está marcada) o null si NO hay que seguir.
 async function hubRegistrar(funcion, local, detalle) {
+  if (window.ADORNO_VERCOMO) { toast('En «Ver como» no se graba nada: es solo para mirar', true); return null; }   // (16-nov) sin cámara
   const loc = (local || session.localTrabajo || null);
   if (window.ADORNO_CARAS && ADORNO_CARAS.registrar) {
     const r = await ADORNO_CARAS.registrar({ cli: sb, funcion, local: loc, detalle: detalle || null });
@@ -1665,6 +1673,7 @@ async function hubRegistrar(funcion, local, detalle) {
 // Cuando el módulo YA sabe quién es (el recibo del local autorizado en la PC): sin ventana, se anota esa persona
 // (con usuario personal hub_registrar anota al dueño del usuario e ignora el legajo que se le pasa)
 async function _hubRegistrarPersona(funcion, local, empleadoId, detalle) {
+  if (window.ADORNO_VERCOMO) { toast('En «Ver como» no se graba nada: es solo para mirar', true); return null; }
   const { data, error } = await sb.rpc('hub_registra_quien', { p_funcion: funcion });
   if (error) { toast('No se pudo anotar quién lo hace: ' + error.message, true); return null; }
   if (!data || !data.registra) return { ok: true, omitido: true };
@@ -1811,7 +1820,8 @@ function autorizarRecibo(recibo) {
   return new Promise(async resolve => {
     RA = { recibo, resumen, resolve, local: String(session.localGerencia || '').toLowerCase(), id: null, poll: null, fin: false, desde: 0, lista: [] };
     // 1) la cámara: autorizado o cancelado · (14-nov) solo si el Hub tiene las caras prendidas (hub_caras_activas)
-    if (session.carasActivas && await _raCara()) return;
+    // (16-nov) «Ver como»: sin cámara; se muestra la ventana con quién lo autorizaría, pero no manda avisos ni acepta clave
+    if (!window.ADORNO_VERCOMO && session.carasActivas && await _raCara()) return;
     _raVentana();                  // 2) aviso al celu y 3) usuario y clave
   });
 }
@@ -1903,6 +1913,7 @@ function _raPersona(p) {
 }
 function _raLista(aviso) {
   const A = RA, box = document.getElementById('ra-lista'); if (!A || !box) return;
+  if (window.ADORNO_VERCOMO && !aviso) aviso = 'Modo «Ver como»: así le aparece el pedido de permiso a esta cuenta. Es solo para mirar: no se manda ningún aviso ni se autoriza nada.';
   const pres = A.lista.filter(p => p.presente), fuera = A.lista.filter(p => !p.presente);
   box.className = 'ra-lista' + (pres.length ? '' : ' sin');
   box.innerHTML = (aviso ? `<div style="color:#dc2626;font-size:12px;margin-bottom:6px;">${escHtml(aviso)}</div>` : '')
@@ -1913,6 +1924,7 @@ function _raLista(aviso) {
 async function _raPedir(empId) {
   const A = RA; if (!A || A.fin) return;
   const p = A.lista.find(x => x.empleado_id === empId); if (!p) return;
+  if (window.ADORNO_VERCOMO) { toast('En «Ver como» no se manda el aviso al celu: es solo para mirar', true); return; }
   const { data, error } = await sb.rpc('tesoreria_recibo_aut_pedir', { p_recibo: A.recibo, p_empleado_id: empId });
   if (error) { toast(error.message, true); return; }
   if (RA !== A || A.fin) { _raCancelarPedido(data.id); return; }
@@ -1939,6 +1951,7 @@ function _raOtra() { const A = RA; if (!A) return; clearInterval(A.poll); _raCan
 // Usuario y clave: quien autoriza entra en un cliente aparte (sin guardar sesión) y crea la autorización ya aceptada
 async function _raClave() {
   const A = RA; if (!A || A.fin) return;
+  if (window.ADORNO_VERCOMO) { toast('En «Ver como» no se autoriza con clave: es solo para mirar', true); return; }
   const mail = (document.getElementById('ra-mail')?.value || '').trim(), pass = document.getElementById('ra-pass')?.value || '';
   if (!mail || !pass) { toast('Cargá el usuario y la clave de quien autoriza', true); return; }
   if (mail.toLowerCase() === String(session.email || '').toLowerCase()) { toast('Tiene que ser el usuario de la encargada o la cajera, no el del local', true); return; }
@@ -2333,6 +2346,7 @@ function verMovimientosCuenta(cuentaId) {
 }
 
 function setCuentaDefaultDesdeSaldos(cuentaId) {
+  if (window.ADORNO_VERCOMO) { toast('En «Ver como» no se cambia la caja predeterminada', true); return; }
   const actual = localStorage.getItem(LS_CTA_DEFAULT);
   const cta = _cuentas.find(c => c.id === cuentaId);
   if (actual == cuentaId) {
@@ -2482,11 +2496,13 @@ async function guardarNotaMov(movId, texto) {
 // Caja predeterminada: se guarda POR DISPOSITIVO (localStorage), así cada
 // puesto abre en la caja que más usa (ej: Oficina → Galicia CA Pesos).
 const LS_CTA_DEFAULT = 'tesoreria_cuenta_default';
-let _movFiltroCuenta = localStorage.getItem(LS_CTA_DEFAULT) || null;
+// (16-nov) «Ver como»: la ⭐ guardada es la de la PC de JP, no la de la cuenta mirada → arranca en "Todas" y no se toca
+let _movFiltroCuenta = (window.ADORNO_VERCOMO ? null : localStorage.getItem(LS_CTA_DEFAULT)) || null;
 let _movFiltroDesde = null;
 let _movFiltroHasta = null;
 
 function toggleCuentaDefault() {
+  if (window.ADORNO_VERCOMO) { toast('En «Ver como» no se cambia la caja predeterminada', true); return; }
   const actual = localStorage.getItem(LS_CTA_DEFAULT);
   if (_movFiltroCuenta && actual != _movFiltroCuenta) {
     localStorage.setItem(LS_CTA_DEFAULT, _movFiltroCuenta);
@@ -2511,7 +2527,7 @@ async function renderMovimientos() {
   // Si la cuenta guardada ya no existe o el usuario no la ve, ignorarla
   if (_movFiltroCuenta && !_cuentas.some(c => c.id == _movFiltroCuenta)) {
     _movFiltroCuenta = null;
-    localStorage.removeItem(LS_CTA_DEFAULT);
+    if (!window.ADORNO_VERCOMO) localStorage.removeItem(LS_CTA_DEFAULT);
   }
   const esDefault = _movFiltroCuenta && localStorage.getItem(LS_CTA_DEFAULT) == _movFiltroCuenta;
   const cuentasOpt = _cuentas.map(c => `<option value="${c.id}" ${_movFiltroCuenta==c.id?'selected':''}>${escHtml(c.nombre)}</option>`).join('');
@@ -4094,6 +4110,8 @@ const pushManager = (() => {
 })();
 
 async function toggleNotificaciones() {
+  // (16-nov) «Ver como»: apagarla acá daría de baja la campanita de JP en esta PC
+  if (window.ADORNO_VERCOMO) { toast('En «Ver como» las notificaciones no se cambian', true); return; }
   try {
     const est = await pushManager.estado();
     if (est === 'no-soportado') { toast('Este navegador no soporta notificaciones', true); return; }
@@ -5379,7 +5397,7 @@ if ('serviceWorker' in navigator) {
   }, true);
 })();
 </script>
-<script src="manual.js?v=50"></script>
+<script src="manual.js?v=51"></script>
 <script>
 // (24-ago) Blindaje iOS: re-suscripcion automatica de push. iOS suelta la
 // suscripcion silenciosamente cada tanto; si el permiso sigue concedido y
@@ -5389,6 +5407,7 @@ if ('serviceWorker' in navigator) {
 (async function _autoResubPush() {
   try {
     if (!('Notification' in window) || Notification.permission !== 'granted') return;
+    if (window.ADORNO_VERCOMO) return;   // (16-nov) «Ver como»: la campanita de esta PC es la de JP, no se toca
     if (typeof pushManager === 'undefined' || !pushManager.soportado()) return;
     const { data: { session: _s } } = await sb.auth.getSession();
     if (!_s) return;
