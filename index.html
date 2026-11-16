@@ -1152,7 +1152,7 @@ async function cargarPermisosHub() {
     const { data: locs, error: eL } = await sb.rpc('hub_mis_locales');
     if (eL) throw eL;
     session.locales = (Array.isArray(locs) ? locs : []).map(x => String(x).toLowerCase());
-    // La llave de caras del Hub (hub_parametros 'caras_activas'): apagada hasta que JP termine de grabar las caras
+    // La llave de caras del Hub (hub_parametros 'caras_activas'): prendida desde el 15-nov-2026 (si se apaga, se vuelve a la lista o la clave sin tocar nada acá)
     try { const { data: ca } = await sb.rpc('hub_caras_activas'); session.carasActivas = ca === true; } catch (_) { session.carasActivas = false; }
   } catch (e) {
     // Sin el Hub la pantalla muestra lo de siempre y decide la base (sus chequeos no dependen de esta lectura)
@@ -5266,7 +5266,7 @@ if ('serviceWorker' in navigator) {
   }, true);
 })();
 </script>
-<script src="manual.js?v=47"></script>
+<script src="manual.js?v=48"></script>
 <script>
 // (24-ago) Blindaje iOS: re-suscripcion automatica de push. iOS suelta la
 // suscripcion silenciosamente cada tanto; si el permiso sigue concedido y
