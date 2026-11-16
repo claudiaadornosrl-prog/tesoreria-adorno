@@ -852,7 +852,7 @@ tbody tr:hover { background: var(--primary-light); }
       <button class="hbtn ab-fijo" onclick="logout()" title="Salir" aria-label="Salir"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg><span class="lb">Salir</span></button>
     </div>
   </div>
-  <script src="/hub/banner.js?v=7"></script>
+  <script src="/hub/banner.js?v=8"></script>
 
   <main id="contenido"><div class="empty"><div class="spinner"></div></div></main>
 </div>
@@ -1006,6 +1006,21 @@ function toast(msg, err) {
   t.textContent = msg; t.className = 'show' + (err ? ' err' : '');
   setTimeout(() => { t.className = ''; }, 2800);
 }
+// (16-nov, JP vía Infra: «carteles rojos que no se cierren solos, con una X, en español y que se entiendan»)
+// /hub/banner.js v8 envuelve este toast: los de ERROR (2º argumento true) salen en el cartel rojo común con ✕, que no se
+// cierra solo, y en castellano simple (ADORNO_AVISO.traducir). Esto es para los errores que se muestran ADENTRO de la
+// página o de una ventana. Sin banner.js queda el texto como venga.
+function _tesErr(e, porDefecto) {
+  const m = (e && e.message) || (typeof e === 'string' ? e : '') || '';
+  if (!m) return porDefecto || 'Algo falló. Probá de nuevo.';
+  try { if (window.ADORNO_AVISO && ADORNO_AVISO.traducir) return ADORNO_AVISO.traducir(m).texto; } catch (_) {}
+  return m;
+}
+// error adentro de la página: el texto simple y, al pasar el mouse, el original (para soporte)
+function _tesErrHtml(e, antes) {
+  const orig = (e && e.message) || String(e || '');
+  return `<span title="${escHtml(orig)}">${escHtml((antes ? antes + ': ' : '') + _tesErr(e))}</span>`;
+}
 
 // ═══════════════════════════════════════════════════════════════════════
 // LOGIN
@@ -1022,7 +1037,7 @@ async function doLogin() {
     if (error) throw error;
     await initSession();
   } catch (e) {
-    errEl.textContent = e.message || 'No se pudo entrar';
+    errEl.textContent = _tesErr(e, 'No se pudo entrar');
     document.getElementById('login-btn').disabled = false;
   }
 }
@@ -1398,7 +1413,7 @@ function _hubPedirConClave(funcs, local, que) {
         cerrar({ nombre: data.nombre, ids: data.ids || [] });   // ids: los manda hubExigir en la operación
       } catch (e) {
         await salir();
-        err.textContent = e.message || String(e);
+        err.textContent = _tesErr(e);
         btn.disabled = false; $('#hs-cancel').disabled = false; btn.textContent = 'Autorizar';
       }
     };
@@ -1430,7 +1445,7 @@ async function cargar() {
     renderTab(currentTab);
     refrescarBadgePagosPendientes();
   } catch (e) {
-    document.getElementById('contenido').innerHTML = `<div class="empty"><div class="icon">⚠️</div>Error: ${escHtml(e.message)}</div>`;
+    document.getElementById('contenido').innerHTML = `<div class="empty"><div class="icon">⚠️</div>${_tesErrHtml(e, 'No se pudo cargar')}</div>`;
   } finally {
     document.getElementById('refresh-btn').innerHTML = '↻';
   }
@@ -1484,7 +1499,7 @@ async function renderTransferencias() {
   const cont = document.getElementById('contenido');
   cont.innerHTML = '<div class="empty"><div class="spinner"></div></div>';
   const { data, error } = await sb.rpc('tesoreria_transferencias_recibidas', { p_dias: 2 });
-  if (error) { cont.innerHTML = `<div class="empty">Error: ${escHtml(error.message)}</div>`; return; }
+  if (error) { cont.innerHTML = `<div class="empty">${_tesErrHtml(error, 'No se pudo cargar')}</div>`; return; }
   const filas = data || [];
   const miLocal = session.localGerencia || session.local || '';
   cont.innerHTML = `
@@ -1552,7 +1567,7 @@ async function renderPendientesFirma() {
   cont.innerHTML = '<div class="empty"><div class="spinner"></div></div>';
   const { data: pend, error } = await sb.from('tesoreria_movimientos_pendientes_firma')
     .select('*').order('cargado_at', { ascending: false });
-  if (error) { cont.innerHTML = `<div class="empty">Error: ${escHtml(error.message)}</div>`; return; }
+  if (error) { cont.innerHTML = `<div class="empty">${_tesErrHtml(error, 'No se pudo cargar')}</div>`; return; }
 
   // Badge en el nav
   const badge = document.getElementById('badge-firma');
@@ -1878,7 +1893,7 @@ async function _raCaraConVideo() {
       if (RA !== A || A.fin) break;
       if (r && r.ok) { msg('✔ Autoriza ' + _raPila(r.autorizadora), true); await _raEsp(700); toast('Lo autorizó ' + _raPila(r.autorizadora) + ' con la cara'); _raFin(r.id); return true; }
       if (!sigue()) break;
-      if (err) { msg(err.message || 'No se pudo autorizar'); await _raEsp(2000); break; }
+      if (err) { msg(_tesErr(err, 'No se pudo autorizar')); await _raEsp(2000); break; }
       if (r && r.motivo === 'sin_rango') { msg(_raPila(r.nombre) + ': el recibo lo autoriza la encargada o la cajera'); await _raEsp(1800); break; }
       if (r && r.motivo === 'caras_apagadas') { msg('El reconocimiento de caras está apagado: pedíselo al celu o con la clave'); await _raEsp(1500); break; }
       msg('No te reconozco: acercate a la cámara');
@@ -2583,7 +2598,7 @@ async function renderMovimientos() {
     _tenenciasCache = tenencias;
     filtrarMovsLocal();
   } catch (e) {
-    document.getElementById('mov-lista').innerHTML = `<div class="empty"><div class="icon">⚠️</div>Error: ${escHtml(e.message)}</div>`;
+    document.getElementById('mov-lista').innerHTML = `<div class="empty"><div class="icon">⚠️</div>${_tesErrHtml(e, 'No se pudo cargar')}</div>`;
   }
 }
 
@@ -2727,7 +2742,7 @@ async function exportarMovsExcel() {
     XLSX.utils.book_append_sheet(wb, ws, 'Movimientos');
     const cta = _movFiltroCuenta ? (_cuentas.find(c => c.id == _movFiltroCuenta)?.nombre || 'cuenta').replace(/[^\w]+/g, '_') : 'todas';
     XLSX.writeFile(wb, `movimientos_${cta}_${_movFiltroDesde}_a_${_movFiltroHasta}.xlsx`);
-  } catch (e) { alert('Error al exportar: ' + e.message); }
+  } catch (e) { alert('No se pudo exportar: ' + e.message); }
 }
 
 // (22-oct, JP) PDF de lo filtrado (jsPDF + autoTable bajo demanda)
@@ -2758,7 +2773,7 @@ async function exportarMovsPdf() {
     });
     const ctaF = _movFiltroCuenta ? cta.replace(/[^\w]+/g, '_') : 'todas';
     doc.save(`movimientos_${ctaF}_${_movFiltroDesde}_a_${_movFiltroHasta}.pdf`);
-  } catch (e) { alert('Error al exportar: ' + e.message); }
+  } catch (e) { alert('No se pudo exportar: ' + e.message); }
 }
 
 // ═══ Editar / borrar movimiento (solo admin) ═══
@@ -3366,7 +3381,7 @@ async function renderMisComprobantes() {
     .in('respaldo_tipo', hubVe('tes.recibo') ? ['factura', 'deposito', 'recibo'] : ['factura', 'deposito'])   // (11-nov) + recibos de la cuenta del local · (14-nov) quien haga recibos según el Hub
     .ilike('cargado_por', session.email || '')
     .order('fecha', { ascending: false }).order('id', { ascending: false }).limit(20);
-  if (error) { box.innerHTML = `<div class="empty">Error: ${escHtml(error.message)}</div>`; return; }
+  if (error) { box.innerHTML = `<div class="empty">${_tesErrHtml(error, 'No se pudo cargar')}</div>`; return; }
   _movsCache = movs || [];
   if (!_movsCache.length) { box.innerHTML = '<div class="empty" style="padding:14px;">Todavía no subiste comprobantes.</div>'; return; }
   box.innerHTML = `
@@ -3889,7 +3904,7 @@ async function renderScrapers() {
   // RPC sin credenciales (11-ago): el grupo Oficina ve estado y ejecuta,
   // la tabla real (con usuario/contraseña del banco) sigue siendo solo admin.
   const { data: scrapers, error } = await sb.rpc('tesoreria_bots_estado');
-  if (error) { cont.innerHTML = `<div class="empty">Error: ${escHtml(error.message)}</div>`; return; }
+  if (error) { cont.innerHTML = `<div class="empty">${_tesErrHtml(error, 'No se pudo cargar')}</div>`; return; }
   cont.innerHTML = `
     <div class="card" style="padding:0;">
       <div style="display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--border);font-size:13px;font-weight:700;">🤖 Bots
@@ -4237,7 +4252,7 @@ async function renderPagosPendientes(soloFiltro) {
   if (_filtroHasta) q = q.lte('fecha_vencimiento', _filtroHasta);
   q = q.order('fecha_vencimiento', { ascending: true });
   const { data, error } = await q;
-  if (error) { cont.innerHTML = `<div class="empty">Error: ${escHtml(error.message)}</div>`; return; }
+  if (error) { cont.innerHTML = `<div class="empty">${_tesErrHtml(error, 'No se pudo cargar')}</div>`; return; }
   _pagosPendientesCache = data || [];
   }
   // (26-oct) Pagos en partes: las partes (parte_de) no se listan sueltas, viven en la ficha del padre
@@ -4392,7 +4407,7 @@ async function exportarPendientesExcel() {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Pagos');
     XLSX.writeFile(wb, _ppArchivo('xlsx'));
-  } catch (e) { alert('Error al exportar: ' + e.message); }
+  } catch (e) { alert('No se pudo exportar: ' + e.message); }
 }
 async function exportarPendientesPdf() {
   try {
@@ -4442,7 +4457,7 @@ async function exportarPendientesPdf() {
       footStyles: { fillColor: [241, 245, 249], textColor: 20, fontStyle: 'bold', halign: 'right' },
     });
     doc.save(_ppArchivo('pdf'));
-  } catch (e) { alert('Error al exportar: ' + e.message); }
+  } catch (e) { alert('No se pudo exportar: ' + e.message); }
 }
 
 // (26-oct) lo que todavía hay que pagar de un pendiente: en los pagos en partes, lo que falta
@@ -5253,7 +5268,7 @@ async function guardarPago(id) {
       if (error) throw error;
       if (partes) {
         const { error: e2 } = await sb.rpc('tesoreria_pago_partes_definir', { p_id: nuevo.id, p_partes: partes });
-        if (e2) alert('El pago se creó, pero no se pudieron guardar las partes: ' + e2.message + '\n\nAbrilo y tocá "Dividir en partes".');
+        if (e2) alert('El pago se creó, pero no se pudieron guardar las partes: ' + _tesErr(e2) + '\n\nAbrilo y tocá "Dividir en partes".');
         else toast(`✓ Creado en ${partes.length} partes`);
       } else toast('✓ Creado');
     }
@@ -5342,7 +5357,7 @@ async function previsualizarAdjunto(input) {
     }
   } catch (e) {
     img.textContent = '📄';
-    info.innerHTML = '<span style="color:#b45309;">No se pudo armar la vista previa (' + escHtml(e.message || e) + ').</span>';
+    info.innerHTML = '<span style="color:#b45309;">No se pudo armar la vista previa: ' + escHtml(_tesErr(e)) + '</span>';
   }
 }
 document.addEventListener('change', ev => {
@@ -5397,7 +5412,7 @@ if ('serviceWorker' in navigator) {
   }, true);
 })();
 </script>
-<script src="manual.js?v=51"></script>
+<script src="manual.js?v=52"></script>
 <script>
 // (24-ago) Blindaje iOS: re-suscripcion automatica de push. iOS suelta la
 // suscripcion silenciosamente cada tanto; si el permiso sigue concedido y
