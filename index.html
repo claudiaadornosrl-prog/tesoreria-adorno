@@ -490,7 +490,9 @@ window.ADORNO_SSO = (function () {
 <link rel="stylesheet" href="/hub/banner.css?v=6"><!-- banner común de los módulos (infra, 11-nov-2026) -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/dist/umd/supabase.min.js" integrity="sha384-UagCvVPT5XXA0Hx+nJYUAGBFseHT9zBgpJMSebsAxl9lciTwbT+39j5VfRjdP5Tp" crossorigin="anonymous"></script>
 <script src="/hub/seguridad.js?v=1"></script>
-<script src="/hub/caras.js?v=4" defer></script>
+<script src="/hub/caras.js?v=7" defer></script>
+<!-- (15-nov, JP vía Infra) ventana común de «Pide permiso»: cara (en segundo plano) → aviso al celu → usuario y clave -->
+<script src="/hub/autorizar.js?v=4" defer></script>
 <!-- jsPDF + QR para generar comprobantes de egreso -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" integrity="sha384-JcnsjUPPylna1s1fvi1u12X5qjY5OL56iySh75FdtrwhO/SWXgMjoVqcKyIIWOLk" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js" integrity="sha384-lQXOAyZwHXE55JFyrOMB7nY2Wv+m5ZWNtJcHrd1rceRQXAYNLak8ukN5TjBTcIwz" crossorigin="anonymous"></script>
@@ -1231,11 +1233,12 @@ function _hubFuncMov(importe, respaldo) {
 }
 function _hubLocalDe(c) { return c && c.tipo === 'caja' ? String(c.local || '').toLowerCase() : null; }
 
-// Antes de grabar: 'o' frena · 'a' pide el usuario de un superior · 'h' sigue.
+// Antes de grabar: 'o' frena · 'a' pide permiso (ventana común del Hub) · 'h' sigue.
 // (15-nov, JP) Cada permiso vale para UNA operación: se pide en cada una (no se reusa) y los pedidos de esa operación
 // llevan su número; la base lo ata al comprobante / pago / transferencia que se graba (los pasos de un mismo trámite
-// sobre el mismo objeto pasan; otro objeto, no). Hay que usarlo dentro de los 5 minutos.
-async function hubExigir(funcs, local, que) {
+// sobre el mismo objeto pasan; otro objeto, no). Hay que usarlo dentro de los 10 minutos (sql/13).
+// resumen: lo que ve quien autoriza (en la ventana y en el aviso al celu)
+async function hubExigir(funcs, local, que, resumen) {
   funcs = [...new Set((funcs || []).filter(Boolean))];
   const no = funcs.find(f => hubEstado(f) === 'o');
   if (no) { toast('Tu usuario no puede ' + (HUB_NOMBRES[no] || no) + ' (permisos del Hub)', true); return false; }
@@ -1243,7 +1246,7 @@ async function hubExigir(funcs, local, que) {
   const loc = local ? String(local).toLowerCase() : '';
   const pedir = funcs.filter(f => hubEstado(f) === 'a');
   if (!pedir.length) return true;
-  const r = await hubPedirSuperior(pedir, loc || null, que);
+  const r = await hubPedirSuperior(pedir, loc || null, que, { resumen });
   if (!r) return false;
   window._tesAut = (r.ids || []).join(',') || null;
   return true;
@@ -1254,17 +1257,53 @@ function _renderPidePermiso(tab) {
   document.getElementById('contenido').innerHTML = `<div class="card" style="max-width:520px;margin:24px auto;text-align:center;">
     <div style="font-size:30px;">🔐</div>
     <h3 class="card-title" style="margin:6px 0;">Esto pide permiso</h3>
-    <div style="font-size:13px;color:var(--muted);line-height:1.5;margin-bottom:14px;">Para ${escHtml(fs.map(f => HUB_NOMBRES[f] || f).join(', '))} lo tiene que autorizar alguien que lo tenga habilitado en el Hub, con su usuario personal.</div>
+    <div style="font-size:13px;color:var(--muted);line-height:1.5;margin-bottom:14px;">Para ${escHtml(fs.map(f => HUB_NOMBRES[f] || f).join(', '))} lo tiene que autorizar alguien que lo tenga habilitado en el Hub: mirando a la cámara, desde el celu o con su usuario y clave.</div>
     <button class="btn-primary" style="width:auto;padding:9px 22px;" onclick="_hubAbrirTab('${tab}')">🔐 Pedir permiso</button></div>`;
 }
 async function _hubAbrirTab(tab) {
   const fs = (TAB_FUNCS[tab] || []).filter(f => hubEstado(f) === 'a');
-  if (fs.length && await hubPedirSuperior(fs, null, 'ver esto')) renderTab(tab);
+  if (fs.length && await hubPedirSuperior(fs, null, 'ver esto', { mirar: true })) renderTab(tab);
 }
 
-// Ventana de usuario superior (mismo formato que el resto del sistema: cliente aparte, código del celu si lo tiene).
-// Devuelve { nombre } si autorizó, o null si canceló.
-function hubPedirSuperior(funcs, local, que) {
+// (15-nov, JP vía Infra) «Pide permiso» con la VENTANA COMÚN del Hub (/hub/autorizar.js): 1) la cara de alguien que lo
+// tenga habilitado, 2) aviso al celu de esa persona (Aceptar / Rechazar), 3) su usuario y clave. Una autorización por
+// función (si la operación pide dos, se piden dos). La base la gasta en la operación (sql/13: header "h123").
+// opts.resumen: lo que ve quien autoriza · opts.mirar: solo para ver (se gasta enseguida; alcanza una vez por sesión).
+// Devuelve { nombre, ids, modo } o null si canceló. Sin /hub/autorizar.js (no cargó) va la ventana vieja de mail y clave.
+async function hubPedirSuperior(funcs, local, que, opts) {
+  opts = opts || {};
+  const locs = session.locales || [];
+  const l0 = local ? String(local).toLowerCase() : '';
+  // el local del pedido es uno de los de esta cuenta (en la caja de otro local, el suyo)
+  const loc = (l0 && locs.includes(l0)) ? l0 : (session.localTrabajo || locs[0] || null);
+  if (!window.ADORNO_AUTORIZAR || !ADORNO_AUTORIZAR.pedir || !loc) return _hubPedirConClave(funcs, local, que);
+  const ids = []; let ult = null;
+  // (autorizar.js v4) la sesión de ESTA página, por si en la compu hay otra cuenta abierta en el Hub
+  let ses = null;
+  try { const s = (await sb.auth.getSession()).data.session; if (s && s.access_token) ses = { email: session.email, token: s.access_token }; } catch (_) {}
+  for (let i = 0; i < funcs.length; i++) {
+    const f = funcs[i];
+    let a = null;
+    try {
+      a = await ADORNO_AUTORIZAR.pedir({ funcion: f, local: loc, modulo: 'tesoreria', que: HUB_NOMBRES[f] || f, sesion: ses,
+        resumen: (opts.resumen || ('Tesorería · ' + (HUB_NOMBRES[f] || f))) + (funcs.length > 1 ? ' · ' + cap1(HUB_NOMBRES[f] || f) + ' (' + (i + 1) + ' de ' + funcs.length + ')' : ''),
+        detalle: { modulo: 'tesoreria', funciones: funcs, para: que || null } });
+    } catch (e) { toast('No se pudo pedir el permiso: ' + (e.message || e), true); return null; }
+    if (!a || a.id == null) return null;
+    ids.push('h' + a.id); ult = a;
+    if (opts.mirar) {   // para mirar no hay operación que la gaste: se gasta acá
+      try { await sb.rpc('hub_autorizacion_usar', { p_id: a.id, p_funcion: f, p_local: loc, p_usado_en: 'tesoreria: mirar' }); } catch (_) {}
+    }
+  }
+  funcs.forEach(fn => { session.hubVistos[fn] = true; });   // para MIRAR alcanza una vez por sesión
+  _cuentas = _cuentasTodas.filter(_cuentaVisible);          // lo que ahora se puede mirar
+  return { nombre: ult && ult.nombre, ids, modo: ult && ult.modo };
+}
+function cap1(t) { t = String(t || ''); return t.charAt(0).toUpperCase() + t.slice(1); }
+
+// Ventana vieja (mail y clave de un superior; cliente aparte, código del celu si lo tiene). Solo si no cargó la común.
+// Devuelve { nombre, ids } si autorizó, o null si canceló.
+function _hubPedirConClave(funcs, local, que) {
   return new Promise(listo => {
     const nombres = funcs.map(f => HUB_NOMBRES[f] || f);
     const f = document.createElement('div');
@@ -1443,7 +1482,7 @@ async function verificarTransferenciasAhora() {
 async function reclamarTransferencia(id, importe) {
   const nota = prompt(`Transferencia de ${fmt$(importe)}.\n\n¿De qué cliente es / qué se llevó?\n\nQueda registrada a nombre de tu local y DESAPARECE de esta lista para todos (el otro local ya no la ve).`, '');
   if (nota === null) return;
-  if (!(await hubExigir(['tes.transferencias']))) return;   // (14-nov) permisos del Hub
+  if (!(await hubExigir(['tes.transferencias'], null, 'reclamar una transferencia', 'Reclamar «es mía» una transferencia de ' + fmt$(Math.abs(Number(importe) || 0)) + ((nota || '').trim() ? ' · ' + nota.trim() : '')))) return;   // (14-nov) permisos del Hub
   if (!(await hubRegistrar('tes.transferencias', session.localTrabajo, { accion: 'reclamar', movimiento: id, importe: Number(importe), nota: (nota || '').trim() }))) return;   // 📷 registra quién
   // (14-nov) con varios locales, se reclama para el local en el que está trabajando
   const { data, error } = await sb.rpc('tesoreria_transferencia_reclamar', { p_id: id, p_nota: nota, p_local: (session.locales || []).length > 1 ? session.localTrabajo : null });
@@ -1552,7 +1591,9 @@ async function _hubExigirCorregir(id, accion, extra) {
   let m = (_movsCache || []).find(x => x.id === id);
   if (!m) { const { data } = await sb.from('tesoreria_movimientos_view').select('id,cuenta_id,importe,codigo_seguimiento').eq('id', id).maybeSingle(); m = data; }
   const c = _cuentaDeMov(m);
-  if (!(await hubExigir(['tes.corregir_anular', ..._hubFuncsCuenta(c)], _hubLocalDe(c), 'corregir o anular'))) return false;
+  const _res = (accion === 'anular' ? 'Anular' : 'Corregir') + ' el comprobante ' + ((m && m.codigo_seguimiento) || ('#' + id))
+    + (m && m.importe != null ? ' · ' + fmt$(Math.abs(Number(m.importe))) : '') + (c && c.nombre ? ' · ' + c.nombre : '');
+  if (!(await hubExigir(['tes.corregir_anular', ..._hubFuncsCuenta(c)], _hubLocalDe(c), 'corregir o anular', _res))) return false;
   return !!(await hubRegistrar('tes.corregir_anular', _hubLocalDe(c), Object.assign({ accion: accion || 'corregir', movimiento: id,
     codigo: m && m.codigo_seguimiento || null, importe: m && m.importe != null ? Number(m.importe) : null, cuenta: c && c.nombre || null }, extra || {})));
 }
@@ -1587,7 +1628,9 @@ async function _hubRegistrarPersona(funcion, local, empleadoId, detalle) {
 }
 // Pagos pendientes: permiso del Hub + registra quién (una línea al principio de cada función que graba)
 async function _hubPagos(accion, detalle) {
-  if (!(await hubExigir(['tes.pagos_pendientes']))) return false;
+  const _d = detalle || {};
+  const _res = 'Pagos pendientes · ' + String(accion || '').replace(/_/g, ' ') + (_d.proveedor ? ' · ' + _d.proveedor : '') + (_d.importe != null ? ' · ' + fmt$(Math.abs(Number(_d.importe) || 0)) : '');
+  if (!(await hubExigir(['tes.pagos_pendientes'], null, 'pagos pendientes', _res))) return false;
   return !!(await hubRegistrar('tes.pagos_pendientes', null, Object.assign({ accion }, detalle || {})));
 }
 async function cancelarMovimiento(id, impresoEl) {
@@ -1727,12 +1770,32 @@ function autorizarRecibo(recibo) {
   });
 }
 
-// 1) La cámara. true = terminó (autorizado o cancelado); false = seguir con el celu o la clave
+// 1) La cámara. (15-nov, JP vía Infra) lee en SEGUNDO PLANO, sin mostrar el video: solo la pastilla «Un momento…» y
+//    «✓ Autorizado por …» (/hub/caras.js v7, quien({ oculta: true })). Si en ~7 s no reconoce a nadie que pueda
+//    autorizar, sigue con el celu o la clave. true = terminó (autorizado o cancelado); false = seguir con el celu o la clave
 async function _raCara() {
   const A = RA; let eq = [];
   try { const { data } = await sb.rpc('pos_equipo', { p_local: A.local }); eq = data || []; } catch (e) {}
   if (RA !== A || A.fin) return true;
   if (!eq.some(e => e.cara) || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return false;   // nadie con la cara registrada o PC sin cámara
+  if (!window.ADORNO_CARAS || !ADORNO_CARAS.quien) return _raCaraConVideo();   // sin /hub/caras.js: la de antes
+  // la RPC del recibo devuelve { ok, … }: para caras.js "reconocida" es solo ok:true (sin_rango / no_reconocida: sigue mirando)
+  let aut = null;
+  const cli = { rpc: async (fn, args) => {
+    if (fn !== 'tesoreria_recibo_aut_cara') return sb.rpc(fn, args);
+    const res = await sb.rpc(fn, args);
+    if (res.error) return { error: res.error };
+    if (res.data && res.data.ok) { aut = res.data; return { data: { nombre: res.data.autorizadora, id: res.data.id } }; }
+    return { data: null };
+  } };
+  try { await ADORNO_CARAS.quien({ cli, rpc: 'tesoreria_recibo_aut_cara', params: { p_recibo: A.recibo }, oculta: true, textoOk: 'Autorizado por' }); } catch (e) {}
+  if (RA !== A || A.fin) return true;
+  if (aut && aut.id) { _raFin(aut.id); return true; }
+  return false;
+}
+// La de antes (con el video a la vista), solo si no cargó /hub/caras.js
+async function _raCaraConVideo() {
+  const A = RA;
   _raModal(`<h3>🔐 Autorizar el recibo · mirá a la cámara</h3>
     <div class="ra-sub">${escHtml(A.resumen)}</div>
     <div class="ra-video-box"><video id="ra-video" autoplay muted playsinline></video><div class="ra-msg" id="ra-msg">Abriendo la cámara…</div></div>
@@ -2050,7 +2113,7 @@ function _actualizadoHace(c){
   return ` <span style="font-size:11px;color:${viejo ? '#dc2626' : 'var(--muted)'};font-weight:${viejo ? '700' : '400'};" title="Último saldo informado por el banco/MP: ${new Date(c.saldo_banco_at).toLocaleString('es-AR')}${viejo ? ' · pasaron más de 12 h: revisá el bot' : ''}">· ${viejo ? '⚠ ' : ''}actualizado ${txt}</span>`;
 }
 async function _hubVerEnSaldos(f) {
-  if (await hubPedirSuperior([f], null, 'ver esto')) { await cargar(); }
+  if (await hubPedirSuperior([f], null, 'ver esto', { mirar: true })) { await cargar(); }
 }
 function renderDashboard() {
   const cont = document.getElementById('contenido');
@@ -3184,7 +3247,7 @@ async function renderCargarComprobante() {
             </div>
           </div>
           ${(conRecibo && reciboAut) ? `<div class="form-row full" id="row-aut-aviso" style="display:none;background:#fef3c7;padding:10px 14px;border-radius:18px;font-size:12px;color:#92400e;line-height:1.5;">
-            🔐 <b>El recibo lo autoriza la encargada o la cajera del local</b> (quien tenga «Hacer un recibo» habilitado en el Hub). Al tocar <b>Emitir recibo</b>: ${session.carasActivas ? 'primero que mire a la cámara; si no está en el local, ' : 'si no está en el local, '}le llega un aviso al celu para aceptar; y si no, puede poner acá su usuario y clave. Después se baja el PDF para firmar.
+            🔐 <b>El recibo lo autoriza la encargada o la cajera del local</b> (quien tenga «Hacer un recibo» habilitado en el Hub). Al tocar <b>Emitir recibo</b>: ${session.carasActivas ? 'si está adelante de la compu, la cámara la reconoce sola (no se ve el video); si no está en el local, ' : 'si no está en el local, '}le llega un aviso al celu para aceptar; y si no, puede poner acá su usuario y clave. Después se baja el PDF para firmar.
           </div>` : ''}
           <div class="form-row full" id="row-factura">
             <label id="lbl-adjunto">Foto o PDF de la factura</label>
@@ -3642,7 +3705,11 @@ async function guardarMovimiento() {
       funcs = [_hubFuncMov(_tipoCarga === 'ingreso' ? 1 : -1, _respaldoCarga), ..._hubFuncsCuenta(c1)];
       loc = _hubLocalDe(c1);
     }
-    if (!(await hubExigir(funcs, loc, 'cargar este movimiento'))) return;
+    const _res = (_tipoCarga === 'ingreso' ? 'Ingreso' : _tipoCarga === 'transferencia' ? 'Transferencia' : 'Egreso') + ' de ' + fmt$(importeAbs)
+      + (c1 && c1.nombre ? (_tipoCarga === 'transferencia' ? ' desde ' : ' · ') + c1.nombre : '')
+      + (_tipoCarga === 'transferencia' ? (() => { const d = _cuentaDeMov({ cuenta_id: parseInt(document.getElementById('f-cuenta-destino')?.value) }); return d && d.nombre ? ' a ' + d.nombre : ''; })() : '')
+      + (desc ? ' · ' + desc : '');
+    if (!(await hubExigir(funcs, loc, 'cargar este movimiento', _res))) return;
     // 📷 registra quién (si JP marcó la función en el Hub): después del permiso, antes de grabar
     const c2 = _tipoCarga === 'transferencia' ? _cuentaDeMov({ cuenta_id: parseInt(document.getElementById('f-cuenta-destino')?.value) }) : null;
     const reg = await hubRegistrar(funcs[0], loc || (c1 && c1.tipo === 'caja' ? c1.local : null), _tipoCarga === 'transferencia'
@@ -3794,7 +3861,7 @@ async function ejecutarScraperAhora(id, nombre) {
   // Marca el scraper como "vencido" (proximo_run en el pasado). El servicio
   // main.py corriendo en loop en la PC lo detecta en el próximo polling
   // (cada POLL_SECONDS, default 5 min) y lo ejecuta.
-  if (!(await hubExigir(['tes.bots']))) return;   // (14-nov) permisos del Hub
+  if (!(await hubExigir(['tes.bots'], null, 'correr un bot', 'Correr ahora el bot ' + (nombre || id)))) return;   // (14-nov) permisos del Hub
   if (!(await hubRegistrar('tes.bots', null, { accion: 'ejecutar', bot: nombre || id }))) return;   // 📷 registra quién
   try {
     const { data: ok, error } = await sb.rpc('tesoreria_bot_ejecutar', { p_id: id });
@@ -5266,7 +5333,7 @@ if ('serviceWorker' in navigator) {
   }, true);
 })();
 </script>
-<script src="manual.js?v=48"></script>
+<script src="manual.js?v=49"></script>
 <script>
 // (24-ago) Blindaje iOS: re-suscripcion automatica de push. iOS suelta la
 // suscripcion silenciosamente cada tanto; si el permiso sigue concedido y
