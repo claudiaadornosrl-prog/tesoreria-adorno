@@ -823,7 +823,7 @@ table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 800p
 th { background: #f9fafb; padding: 10px 12px; text-align: left; font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; border-bottom: 1px solid var(--border); position: sticky; top: 0; }
 th.right, td.right { text-align: right; }
 td { padding: 10px 12px; border-bottom: 1px solid #f3f4f6; font-variant-numeric: tabular-nums; }
-tbody tr:nth-child(even) { background: #fafafa; }
+/* (19-nov-2026) la cebra y el resalte bajo el mouse los pone la pieza común adorno-tablas.js (tablas tipo Excel) */
 tbody tr:hover { background: var(--primary-light); }
 .importe-ingreso { color: var(--green); font-weight: 600; }
 .importe-egreso { color: var(--red); font-weight: 600; }
@@ -5490,7 +5490,7 @@ if ('serviceWorker' in navigator) {
   }, true);
 })();
 </script>
-<script src="manual.js?v=55"></script>
+<script src="manual.js?v=56"></script>
 <script>
 // (24-ago) Blindaje iOS: re-suscripcion automatica de push. iOS suelta la
 // suscripcion silenciosamente cada tanto; si el permiso sigue concedido y
@@ -5528,5 +5528,6 @@ if ('serviceWorker' in navigator) {
   } catch (_) {}
 })();
 </script>
+<script src="adorno-tablas.js?v=6761f5ad"></script>
 </body>
 </html>

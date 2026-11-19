@@ -1,7 +1,7 @@
 // Service Worker — Tesorería Adorno
-const CACHE_VERSION = 'tesoreria-adorno-v166-camara-permiso';
+const CACHE_VERSION = 'tesoreria-adorno-v167-tablas-excel';
 const CACHE_ASSETS = ['./', './index.html',
-  './manual.js', './manifest.webmanifest', './favicon.svg', './fonts/URWGothic-Book.ttf'];
+  './manual.js', './adorno-tablas.js', './manifest.webmanifest', './favicon.svg', './fonts/URWGothic-Book.ttf'];
 
 self.addEventListener('install', e => {
   e.waitUntil(
