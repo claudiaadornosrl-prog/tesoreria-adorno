@@ -1,5 +1,5 @@
 // Service Worker — Tesorería Adorno
-const CACHE_VERSION = 'tesoreria-adorno-v167-tablas-excel';
+const CACHE_VERSION = 'tesoreria-adorno-v168-clodi-ir';
 const CACHE_ASSETS = ['./', './index.html',
   './manual.js', './adorno-tablas.js', './manifest.webmanifest', './favicon.svg', './fonts/URWGothic-Book.ttf'];
 
