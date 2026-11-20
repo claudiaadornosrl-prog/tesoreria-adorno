@@ -1,5 +1,5 @@
 // Service Worker — Tesorería Adorno
-const CACHE_VERSION = 'tesoreria-adorno-v169-clodi-ir2';
+const CACHE_VERSION = 'tesoreria-adorno-v170-filtro-al-costado';
 const CACHE_ASSETS = ['./', './index.html',
   './manual.js', './adorno-tablas.js', './manifest.webmanifest', './favicon.svg', './fonts/URWGothic-Book.ttf'];
 
